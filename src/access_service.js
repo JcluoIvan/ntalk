@@ -6,32 +6,6 @@ const moment = require('moment');
 const sha256 = require('sha256');
 const UserRepository = require('./repositories/user_repository');
 
-class Client {
-    constructor(user) {
-        this.socket = null;
-        this.online = false;
-        this.user = { ...user };
-    }
-
-    onConnect(socket, sid) {
-        if (!sid) {
-            throw new Error('sid is required');
-        }
-
-        if (this.user.sid !== sid && this.socket) {
-            this.socket.disconnect();
-        }
-
-        this.user.sid = sid;
-        this.socket = socket;
-
-        socket.on('disconnect', () => {
-            this.online = false;
-            this.socket = null;
-        });
-    }
-}
-
 class AccessService {
     constructor() {
         this.mapClients = new Map();
@@ -57,7 +31,7 @@ class AccessService {
             throw new Error('access token is required');
         }
 
-        const { data } = await axios.post(env.ACCESS_CHECK_URL, { access_token });
+        const { data } = await axios.post(env.ACCESS_CHECK_URL, null, { params: { access_token } });
 
         if (typeof data !== 'object') {
             log.fatal('access check response unkonwn > ' + data);
@@ -69,15 +43,19 @@ class AccessService {
         }
 
         if (!data.token) {
-            log.fatal('access check response no token > ' + JSON.stringify(data));
-            throw new Error('empty token');
+            log.fatal('access check response no id > ' + JSON.stringify(data));
+            throw new Error('empty id');
         }
 
-        const user = await new UserRepository().findOrCreateByToken(data.token);
-        const stoken = sha256(`${user.token}-${moment().valueOf()}-${Math.random()}`);
+        const sessid = sha256(`${data.token}-${moment().valueOf()}-${Math.random()}`);
+        const userRepository = new UserRepository();
+        const user = await userRepository.findOrCreateByToken(data.token, data.name || null);
+
+        await userRepository.updateSassid(user.id, sessid);
+
         this.disconnectClient(user.id);
         this.createClient(user);
-        return { id: user.id, stoken };
+        return { id: user.id, sessid, name: user.name, image: user.image };
     }
 }
 

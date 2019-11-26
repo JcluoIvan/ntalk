@@ -1,0 +1,71 @@
+@mixin media-up($type) {
+    @if $type == 'sm' {
+        // Small devices (landscape phones, 576px and up)
+        @media (min-width: 576px) {
+            @content;
+        }
+    } @else if $type == 'md' {
+        // Medium devices (tablets, 768px and up)
+        @media (min-width: 768px) {
+            @content;
+        }
+    } @else if $type == 'lg' {
+        // Large devices (desktops, 992px and up)
+        @media (min-width: 992px) {
+            @content;
+        }
+    } @else if $type == 'xl' {
+        // Extra large devices (large desktops, 1200px and up)
+        @media (min-width: 1200px) {
+            @content;
+        }
+    }
+}
+
+$colors: (
+    primary: #007bff,
+    light-primary: #b8daff,
+    secondary: #6c757d,
+    light-secondary: #d6d8db,
+    success: #28a745,
+    light-success: #c3e6cb,
+    danger: #dc3545,
+    light-danger: #f1b0b7,
+    warning: #ffc107,
+    light-warning: #ffeeba,
+    info: #17a2b8,
+    light-info: #bee5eb,
+    light: #f8f9fa,
+    light-light: #fdfdfe,
+    dark: #343a40,
+    light-dark: #b9bbbe,
+    bg-color: #17212b,
+    active-bg-color: #2a5378,
+    hover-bg-color: #202b36,
+    bg-dark-color: #0e1621,
+    light-text-color: #f5f5f5,
+    text-color: #e5edf2,
+    input-bg-color: #242f3d,
+    placeholder-text-color: #6d7883,
+    sub-text-color: #7f92a4,
+    link-text-color: #73bbf5,
+    light-blue-color: #6bc2ff,
+    message-bg-color: #182533,
+    message-self-bg-color: #2a5378,
+    message-time-color: #6d7f8f,
+    message-self-time-color: #7da8d3,
+);
+@function map-deep-get($map, $keys...) {
+    @each $key in $keys {
+        $map: map-get($map, $key);
+    }
+    @return $map;
+}
+@function color($key) {
+    @if map-has-key($colors, $key) {
+        @return map-get($colors, $key);
+    }
+
+    @warn "unknown `#{$key}` in $colors.";
+    @return null;
+}

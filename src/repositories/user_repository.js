@@ -7,17 +7,28 @@ module.exports = class UserResponse extends BaseRepository {
         this.columnTimestamp.updatedAt = null;
     }
 
-    async findOrCreateByToken(token) {
-        const user = this.find({ token });
+    
+    static newClass () {
+        return new UserResponse();
+    }
+
+    async findOrCreateByToken(token, name = null) {
+        const user = await this.find({ token });
         if (!user) {
-            const uid = await userRepository.insert({
-                token: data.token,
-                name: data.name || `User`,
+            const uid = await this.insert({
+                token,
+                name: name || `User`,
             });
-
-            return await userRepository.findOrFail(uid);
+            return await this.findOrFail(uid);
         }
-
         return user;
+    }
+
+    async updateSassid(id, sessid) {
+        const affecteds = await this.update({sessid}, {id});
+        if (affecteds < 1) {
+            throw new Error('update sessid fail');
+        }
+        return true;
     }
 };
