@@ -12,12 +12,10 @@
         "allowSyntheticDefaultImports": true,
         "sourceMap": true,
         "baseUrl": "./resources",
-        "outDir": "./dist",
-        "watch": true,
         "paths": {
             "@/*": ["./*"]
         },
         "lib": ["esnext", "dom", "dom.iterable", "scripthost"]
     },
-    "exclude": ["node_modules", "resources"]
+    "exclude": ["node_modules", "src"]
 }

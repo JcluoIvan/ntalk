@@ -14,7 +14,7 @@ Vue.component('sidebar', require('@/components/Sidebar.vue').default);
 Vue.component('profile', require('@/components/Profile.vue').default);
 Vue.component('talk-item', require('@/components/TalkItem.vue').default);
 Vue.component('talk-content', require('@/components/TalkContent.vue').default);
-Vue.component('message', require('@/components/Message.vue').default);
+Vue.component('talk-message', require('@/components/TalkMessage.vue').default);
 Vue.component('notice-message', require('@/components/NoticeMessage.vue').default);
 
 const vuetify = new Vuetify({

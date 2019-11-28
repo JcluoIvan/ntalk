@@ -1,5 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
 import { log } from './config/logger';
 const config = {
     basepath: __dirname,
@@ -7,7 +7,7 @@ const config = {
 
 async function render(fpath: string, data?: { [key: string]: string }) {
     return new Promise((resolve, reject) => {
-        fs.readFile(path.resolve(config.basepath, fpath), (err, buffer) => {
+        fs.readFile(path.resolve(config.basepath, fpath), (err: NodeJS.ErrnoException | null, buffer: Buffer) => {
             if (err) {
                 log.error(`<${err.code}> ${err.message}`);
                 reject(err);
@@ -15,10 +15,7 @@ async function render(fpath: string, data?: { [key: string]: string }) {
             }
             let str = buffer.toString();
             if (data) {
-                let str = Object.keys(data || {}).reduce(
-                    (s, key) => s.replace(`{{${key}}}`, data[key]),
-                    buffer.toString(),
-                );
+                str = Object.keys(data || {}).reduce((s, key) => s.replace(`{{${key}}}`, data[key]), str);
             }
             resolve(str);
         });

@@ -1,7 +1,5 @@
-import { Sequelize, Model, DataTypes } from 'sequelize/types';
+import { Model, DataTypes } from 'sequelize';
 import { sequelize } from '../config/database';
-import { TalkMapping } from './TalkMapping';
-import { userInfo } from 'os';
 
 export class User extends Model {
     public id!: number;
@@ -12,13 +10,14 @@ export class User extends Model {
     public createdAt!: Date;
 
     public static scopeWithout() {
-        return User.scope('without');
+        return User.scope('withoutToken');
     }
 }
 User.init(
     {
         id: {
             type: DataTypes.BIGINT,
+            autoIncrement: true,
             primaryKey: true,
         },
         token: DataTypes.STRING,

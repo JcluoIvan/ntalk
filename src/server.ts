@@ -1,13 +1,15 @@
 import express from 'express';
-import env from './config/env';
 import { viewRender } from './view';
-import path from 'path';
-import SocketIO from 'socket.io';
+import * as path from 'path';
 import { log } from './config/logger';
 import { AccessService } from './services/AccessService';
 import { User } from './models/User';
 import sha256 from 'sha256';
-const render = viewRender(path.resolve(__dirname, 'public'));
+import { UserRepository } from './repositories/UserRepository';
+import { env } from './config/env';
+import { handlerIOServer } from './services/ClientService';
+
+const render = viewRender(path.resolve(__dirname, '../public'));
 const app = express();
 const server = require('http').Server(app);
 const io = require('socket.io')(server);
@@ -15,16 +17,11 @@ server.listen(env.SERVER_PORT, () => {
     log.info(`Server Start on ${env.SERVER_PORT}`);
 });
 
-// socket client handler
-// new ClientService(io);
+log.info('test');
 
-(async () => {
-    const u = await User.scopeWithout().create({
-        token: sha256(new Date().getTime() + ''),
-    });
-    log.info(u.toJSON());
-    process.exit();
-})();
+// socket client handler
+handlerIOServer(io);
+// new ClientService(io);
 
 app.use(express.json({ limit: '20mb' }));
 app.use('/assets', express.static('public/assets'));

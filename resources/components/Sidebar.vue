@@ -4,10 +4,10 @@
             <v-app-bar-nav-icon></v-app-bar-nav-icon>
             <v-text-field hide-details append-icon="search" single-line placeholder="搜尋"></v-text-field>
         </v-app-bar>
-        <v-subheader>Talk Group</v-subheader>
+        <v-subheader>Talk Group, {{ activeTKey }}, {{ activeIndex }}</v-subheader>
         <v-list two-line subheader>
             <v-list-item-group v-model="activeIndex">
-                <v-list-item v-for="talk in talks" :key="talk.key" link>
+                <v-list-item v-for="(talk, i) in talks" :key="i" link>
                     <v-list-item-avatar>
                         <v-img :src="talk.avatar" v-if="talk.avatar"></v-img>
                         <v-avatar v-else color="primary">
@@ -16,7 +16,7 @@
                     </v-list-item-avatar>
                     <v-list-item-content>
                         <template v-slot:badge>1</template>
-                        <v-list-item-title v-text="talk.name"></v-list-item-title>
+                        <v-list-item-title v-text="talk.name + ` - ${talk.key}, ${talk.id}`"></v-list-item-title>
                         <v-list-item-subtitle
                             v-if="talk.lastMessage"
                             v-text="talk.lastMessage.content"
@@ -49,30 +49,25 @@
 <script lang="ts">
 import Vue from 'vue';
 import store from '../store';
-namespace P {
-    export interface TalkItem extends NTalk.Talk {
-        active: boolean;
-    }
-}
+namespace P {}
 export default Vue.extend({
     computed: {
-        talks(): P.TalkItem[] {
+        talks(): NTalk.Talk[] {
             const tkey = store.activeTKey;
-            return store.talks.map((t) => {
-                return {
-                    ...t,
-                    active: t.key === tkey,
-                    lastMessage: { content: 'test' } as any,
-                };
-            });
+            return store.talks;
+        },
+        activeTKey() {
+            return store.activeTKey;
         },
         activeIndex: {
             set(idx: number) {
                 const talk = this.talks[idx];
-                store.activeTKey = talk ? talk.key : -1;
-                console.info('sett actid = ', store.activeTKey);
+                this.$nextTick(() => {
+                    store.activeTKey = talk ? talk.key : -1;
+                });
             },
             get(): number {
+                const talks = this.talks;
                 const key = store.activeTKey;
                 return key ? this.talks.findIndex((t) => t.key === key) : -1;
             },
@@ -80,7 +75,8 @@ export default Vue.extend({
     },
 
     methods: {
-        textAvatar(talk: P.TalkItem) {
+        updateActiveIndex() {},
+        textAvatar(talk: NTalk.Talk) {
             if (talk.name) {
                 return talk.name.match(/^\w{2}/) ? talk.name.substr(0, 2) : talk.name.substr(0, 1);
             }

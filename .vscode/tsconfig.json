@@ -1,23 +1,18 @@
 {
     "compilerOptions": {
-        "target": "esnext",
-        "module": "esnext",
-        "skipLibCheck": true,
-        "strict": true,
-        "jsx": "preserve",
-        "importHelpers": true,
-        "moduleResolution": "node",
-        "experimentalDecorators": true,
+        "target": "es6",
+        "module": "commonjs",
+        "preserveConstEnums": true,
         "esModuleInterop": true,
-        "allowSyntheticDefaultImports": true,
         "sourceMap": true,
-        "baseUrl": "./resources",
-        "outDir": "./dist",
+        "outDir": "../dist",
         "watch": true,
+        "baseUrl": "../src",
         "paths": {
-            "@/*": ["./*"]
+            "@/*": ["../*"]
         },
         "lib": ["esnext", "dom", "dom.iterable", "scripthost"]
     },
-    "exclude": ["node_modules", "resources"]
+    "include": ["../src/**/*"],
+    "exclude": ["../node_modules", "../resources"]
 }

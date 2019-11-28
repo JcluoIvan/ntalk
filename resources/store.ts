@@ -3,6 +3,7 @@ import axios from 'axios';
 import io from 'socket.io-client';
 import helpers from '@/helpers';
 import { resolve } from 'dns';
+import moment from 'moment';
 
 export enum SocketStatus {
     Connected = 'connected',
@@ -16,6 +17,7 @@ let client: SocketIOClient.Socket = io('/', {
 let autoincrementTalkKey = 0;
 
 const clientEmit = async <T = any>(event: string, data?: any): Promise<T> => {
+    console.info('emit > ', event, data);
     return new Promise<T>((resolve, reject) => {
         client.emit(event, data, (res: NTalk.Socket.EmitResponse<T>) => {
             if (!res) {
@@ -33,24 +35,24 @@ const clientEmit = async <T = any>(event: string, data?: any): Promise<T> => {
 const createTalk = (data: any): NTalk.Talk => {
     const lastMessage = data.last_message || data.lastMessage;
     return {
-        messages: [],
-        id: data.id,
-        type: data.type,
-        name: data.name,
-        avatar: data.avatar,
-        unread: data.unread,
-        targetId: data.target_id || data.targetId || 0,
         lastMessage: lastMessage
             ? {
                   id: lastMessage.id,
-                  userId: lastMessage.user_id || lastMessage.userId,
-                  talkId: lastMessage.talk_id || lastMessage.talkId,
+                  userId: lastMessage.userId,
+                  talkId: lastMessage.talkId,
                   content: lastMessage.content,
-                  createdAt: lastMessage.created_at || lastMessage.createdAt,
+                  createdAt: lastMessage.createdAt,
+                  intCreatedAt: moment(lastMessage.createdAt).valueOf(),
               }
             : null,
-        lastReadId: data.last_read_id || data.lastReadId,
-        createdAt: data.created_at || data.createdAt,
+        id: 0,
+        avatar: '',
+        createdAt: '',
+        name: '',
+        type: 'single',
+        messages: [],
+        targetId: 0,
+        ...data,
         key: data.key ? data.key : ++autoincrementTalkKey,
     };
 };
@@ -60,7 +62,10 @@ const store = new Vue({
         user: NTalk.UserSelf;
         users: NTalk.User[];
         notices: NTalk.NoticeMessage[];
-        sourceTalks: NTalk.Talk[];
+        source: {
+            talks: NTalk.Talk[];
+            joins: NTalk.TalkJoin[];
+        };
         activeTKey: number;
         socket: {
             errorMessage: string;
@@ -76,7 +81,10 @@ const store = new Vue({
         },
         notices: [],
         users: [],
-        sourceTalks: [],
+        source: {
+            talks: [],
+            joins: [],
+        },
         activeTKey: 0,
         socket: {
             errorMessage: '',
@@ -104,30 +112,13 @@ const store = new Vue({
             return this.socket.status === SocketStatus.Reconnecting;
         },
         talks(): NTalk.Talk[] {
-            const sources = this.sourceTalks;
-            const uid = this.user.id;
-            const talks: NTalk.Talk[] = this.users
-                .filter((u) => u.id !== uid)
-                .map<NTalk.Talk>((u) => {
-                    const talk = sources.find((t) => t.type === 'single' && t.targetId === u.id) || {};
-                    return createTalk({
-                        id: 0,
-                        type: 'single',
-                        unread: 0,
-                        targetId: u.id,
-                        lastMessage: null,
-                        lastReadId: 0,
-                        createdAt: '',
-                        ...talk,
-                        name: u.name,
-                        avatar: u.avatar,
-                    });
-                });
-
-            sources.filter((t) => t.type === 'group').forEach((t) => talks.push(t));
-            return talks.sort((a, b) => {
-                return ((a.lastMessage && a.lastMessage.id) || a.id) - ((b.lastMessage && b.lastMessage.id) || b.id);
-            });
+            return this.source.talks
+                .sort((a, b) => {
+                    return (
+                        ((b.lastMessage && b.lastMessage.id) || b.id) - ((a.lastMessage && a.lastMessage.id) || a.id)
+                    );
+                })
+                .slice();
         },
         activeTalk(): NTalk.Talk | null {
             const tkey = this.activeTKey;
@@ -191,6 +182,15 @@ const store = new Vue({
                 this.socket.errorMessage = message;
             });
 
+            client.on('talk.message', (data: NTalk.TalkMessage) => {
+                console.info('talk.message', data);
+                const talk = this.source.talks.find((t) => t.id === data.talkId);
+                if (talk) {
+                    talk.lastMessage = data;
+                    talk.messages.push(data);
+                }
+            });
+
             /**
              * 更新成員
              */
@@ -199,12 +199,37 @@ const store = new Vue({
                 this.users = users;
             });
         },
-
         async reloadTalks() {
-            const rows = await clientEmit<any[]>('talk.all');
-            this.sourceTalks = rows.map<NTalk.Talk>((o: any) => {
-                return createTalk(o);
+            const { talks, joins, singleJoins } = await clientEmit<{
+                talks: NTalk.Talk[];
+                joins: NTalk.TalkJoin[];
+                singleJoins: NTalk.SingleTalkJoin[];
+            }>('talk.all');
+            const rows = talks.map<NTalk.Talk>((o: any) => {
+                const sjoin = singleJoins.find((sj) => sj.talkId === o.id);
+                o.targetId = sjoin ? sjoin.userId : 0;
+                const t = createTalk({ ...o });
+                return t;
             });
+
+            this.users
+                .filter((u) => u.id !== this.user.id)
+                .forEach((u) => {
+                    const talk = rows.find((r) => r.type === 'single' && r.targetId === u.id);
+                    if (talk) {
+                        talk.name = u.name;
+                        return;
+                    }
+                    const newTalk = createTalk({
+                        targetId: u.id,
+                        type: 'single',
+                        name: u.name,
+                    });
+                    rows.push(newTalk);
+                });
+
+            this.source.talks = rows;
+            this.source.joins = joins;
         },
 
         notice(message: string, option: NTalk.NoticeType | NTalk.NoticeOption) {
@@ -216,24 +241,34 @@ const store = new Vue({
                 ...opt,
             });
         },
+        unActiveTKey() {
+            store.activeTKey = -1;
+        },
 
-        async createSingleTalk(targetId: number) {
-            const talk = await clientEmit<NTalk.Talk>('talk.create-single', targetId);
-            this.sourceTalks = this.sourceTalks.filter((t) => t.type !== 'single' && t.targetId !== targetId);
-            const newTalk = createTalk(talk);
-            this.sourceTalks.push(newTalk);
+        async createSingleTalk(targetId: number, tkey: number) {
+            const { talk, join } = await clientEmit<{ talk: NTalk.Talk; join: NTalk.TalkJoin }>(
+                'talk.create-single',
+                targetId,
+            );
+            const newTalk = createTalk({ ...talk, targetId, messages: [] });
+            this.source.talks = this.source.talks.filter((t) => t.key !== tkey);
+            this.source.talks.push(newTalk);
+
+            if (join) {
+                this.source.joins = this.source.joins.filter((j) => j.talkId !== talk.id);
+                this.source.joins.push(join);
+            }
             return newTalk;
         },
 
-        async sendMessage(tid: number, message: string) {
+        async sendMessage(tid: number, content: string) {
             const data = {
                 talkId: tid,
-                message,
+                content,
             };
-            return await clientEmit<number>('talk.send-message', data);
+            return await clientEmit<number>('talk.message', data);
         },
-
-        async loadMessageAfterId(tid: number, mid = 0) {
+        async loadMessageBefore(tid: number, mid = 0) {
             const data = {
                 talkId: tid,
                 messageId: mid,
@@ -242,24 +277,39 @@ const store = new Vue({
             if (!talk) {
                 throw new Error(`talk not found : ${tid}`);
             }
-            const messages = await clientEmit<NTalk.TalkMessage[]>('talk.load-message.after', data);
+            const { nums, messages } = await clientEmit<{ nums: number; messages: NTalk.TalkMessage[] }>(
+                'talk.load-message.before',
+                data,
+            );
+            talk.messages = [...messages, ...talk.messages].slice();
+            talk.messages = talk.messages.sort((a, b) => a.id - b.id);
+            return { nums, messages };
+        },
+
+        async loadMessageAfter(tid: number, mid = 0) {
+            const data = {
+                talkId: tid,
+                messageId: mid,
+            };
+            const talk = this.talks.find((t) => t.id === tid);
+            if (!talk) {
+                throw new Error(`talk not found : ${tid}`);
+            }
+            const { nums, messages } = await clientEmit<{ nums: number; messages: NTalk.TalkMessage[] }>(
+                'talk.load-message.after',
+                data,
+            );
             talk.messages = [...talk.messages, ...messages];
-            return true;
-        },
+            talk.messages = talk.messages.sort((a, b) => a.id - b.id);
 
-        async loadMessageBeforeId(tid: number, mid = 0) {
-            const data = {
-                talkId: tid,
-                messageId: mid,
-            };
-            const talk = this.talks.find((t) => t.id === tid);
-            if (!talk) {
-                throw new Error(`talk not found : ${tid}`);
-            }
-            const messages = await clientEmit<NTalk.TalkMessage[]>('talk.load-message.before', data);
-            talk.messages = [...messages, ...talk.messages];
-            return true;
+            // 只保留 30筆
+            const numMessages = talk.messages.length;
+            const max = Math.max(30, talk.messages.length);
+            talk.messages = talk.messages.slice(numMessages - max);
+
+            return { nums, messages };
         },
     },
 });
+(window as any).store = store;
 export default store;

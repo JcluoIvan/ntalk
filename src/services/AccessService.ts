@@ -1,9 +1,7 @@
 import axios from 'axios';
-import env from '../config/env';
 import { log } from '../config/logger';
-import moment from 'moment';
-import sha256 from 'sha256';
 import { UserRepository } from '../repositories/UserRepository';
+import { env } from '../config/env';
 
 export const AccessService = {
     async oauth(accessToken: string) {
@@ -27,7 +25,10 @@ export const AccessService = {
             throw new Error('empty id');
         }
 
-        const user = await UserRepository.findOrCreateByToken(data.token);
+        const user = await UserRepository.findOrCreateByToken({
+            token: data.token,
+            name: data.name || null,
+        });
 
         return user.toJSON();
     },

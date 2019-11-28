@@ -1,11 +1,11 @@
-import moment from 'moment';
-import { Model, Sequelize, DataTypes } from 'sequelize/types';
+import * as moment from 'moment';
+import { Model, Sequelize, DataTypes } from 'sequelize';
 import { sequelize } from '../config/database';
 
 /**
  * @extends InterfaceModel
  */
-export class TalkMapping extends Model {
+export class TalkJoin extends Model {
     public id!: number;
     public talkId!: number;
     public userId!: number;
@@ -14,7 +14,7 @@ export class TalkMapping extends Model {
     public readonly createdAt!: Date;
 }
 
-TalkMapping.init(
+TalkJoin.init(
     {
         id: {
             type: DataTypes.BIGINT,
@@ -28,7 +28,7 @@ TalkMapping.init(
     },
     {
         underscored: true,
-        tableName: 'talk_mapping',
+        tableName: 'talk_join',
         sequelize,
         updatedAt: false,
     },

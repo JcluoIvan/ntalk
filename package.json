@@ -4,8 +4,8 @@
     "description": "",
     "main": "index.js",
     "scripts": {
-        "serve": "supervisor -w server.js,src server",
-        "serve-watch": "",
+        "serve": "supervisor -w dist dist/server",
+        "serve-watch": "tsc -p .vscode/tsconfig.json --watch",
         "development": "cross-env NODE_ENV=development node_modules/webpack/bin/webpack.js --progress --hide-modules --config=node_modules/laravel-mix/setup/webpack.config.js",
         "watch": "npm run development -- --watch",
         "start": "cross-env NODE_ENV=development node_modules/webpack-dev-server/bin/webpack-dev-server.js --inline --hot --config=node_modules/laravel-mix/setup/webpack.config.js",
@@ -28,6 +28,7 @@
         "mysql2": "2.0.1"
     },
     "devDependencies": {
+        "@types/node": "12.12.2",
         "@types/axios": "0.14.0",
         "@types/socket.io": "1.4.33",
         "@types/socket.io-client": "1.4.32",
