@@ -1,15 +1,16 @@
 <template>
-    <div id="app">
-        <div class="app-container row no-gutters">
-            <div class="col-auto">
+    <v-app>
+        <div class="app-container d-flex">
+            <div class>
                 <sidebar></sidebar>
             </div>
-            <div class="col">
+            <div class="flex-grow-1">
                 <talk-content></talk-content>
             </div>
         </div>
         <access-login v-show="!online"></access-login>
-    </div>
+        <notice-message></notice-message>
+    </v-app>
 </template>
 
 <script lang="ts">
@@ -23,7 +24,7 @@ export default Vue.extend({
         },
         online() {
             return store.socket.status === SocketStatus.Connected;
-        }
+        },
     },
 });
 </script>

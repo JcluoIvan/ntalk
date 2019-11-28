@@ -23,12 +23,12 @@ export default Vue.extend({
             return this.data;
         },
         active(): boolean {
-            return store.activeTalkId === this.talk.id;
+            return store.activeTKey === this.talk.key;
         },
     },
     methods: {
         activeTalk() {
-            store.activeTalkId = this.talk.id;
+            store.activeTKey = this.talk.key;
         },
     },
 });

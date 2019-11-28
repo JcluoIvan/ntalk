@@ -7,14 +7,17 @@ const io = require('socket.io')(server);
 const path = require('path');
 const render = require('./src/view')(path.resolve(__dirname, 'public'));
 const access = require('./src/access_service');
-const TalkService = require('./src/talk_service');
+const ClientService = require('./src/client_service');
+const TalkRepository = require('./src/repositories/talk_repository');
+
+
 
 server.listen(env.SERVER_PORT, () => {
     log.info(`Server Start on ${env.SERVER_PORT}`);
 });
 
-// socket manager
-new TalkService(io);
+// socket client handler
+new ClientService(io);
 
 log.info(`debug = ${env.DEBUG}`);
 
