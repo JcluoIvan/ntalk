@@ -5,10 +5,10 @@ export const sequelize = new Sequelize(env.DB_DATABASE, env.DB_USERNAME, env.DB_
     host: env.DB_HOST,
     dialect: 'mysql',
     pool: {
-        max: Number(env.DB_POOL_MAX),
-        min: Number(env.DB_POOL_MIN),
-        acquire: Number(env.DB_POOL_ACQUIRE),
-        idle: Number(env.DB_POOL_IDLE),
+        max: env.DB_POOL_MAX,
+        min: env.DB_POOL_MIN,
+        acquire: env.DB_POOL_ACQUIRE,
+        idle: env.DB_POOL_IDLE,
     },
 });
 

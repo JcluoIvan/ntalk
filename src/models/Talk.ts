@@ -15,6 +15,7 @@ class Talk extends Model {
     public type!: TalkType;
     public name!: string;
     public avatar!: string;
+    public lifetime!: number;
     public creatorId!: number;
     public readonly createdAt!: Date;
     
@@ -38,6 +39,7 @@ Talk.init(
         type: DataTypes.ENUM('single', 'group'),
         name: DataTypes.STRING,
         avatar: DataTypes.STRING,
+        lifetime: DataTypes.INTEGER,
         creatorId: DataTypes.BIGINT,
         createdAt: DataTypes.DATE,
     },

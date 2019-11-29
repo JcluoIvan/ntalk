@@ -10,39 +10,43 @@
         >
             <label class="blue-grey--text text--lighten-2">請選擇聊天對象，開始傳訊息</label>
         </v-card>
-        <!-- <div class="d-flex flex-column" v-else> -->
         <v-card class="d-flex flex-column content-panel" dark height="100%" v-else>
             <div>
-                <v-app-bar color="blue darken-1" dense dark>
-                    <v-app-bar-nav-icon></v-app-bar-nav-icon>
-
-                    <v-toolbar-title>Page title</v-toolbar-title>
-
+                <v-app-bar color="blue-grey darken-4" dense dark>
+                    <v-list-item>
+                        <v-list-item-content>
+                            <v-list-item-title>{{ talk.name }}</v-list-item-title>
+                            <v-list-item-subtitle>{{ lifetimeText(talk.lifetime) }}</v-list-item-subtitle>
+                        </v-list-item-content>
+                    </v-list-item>
                     <v-spacer></v-spacer>
-
-                    <v-btn icon>
-                        <v-icon>mdi-heart</v-icon>
-                    </v-btn>
-
-                    <v-btn icon>
-                        <v-icon>mdi-magnify</v-icon>
-                    </v-btn>
-
-                    <v-menu left bottom>
+                    <v-menu offset-y>
                         <template v-slot:activator="{ on }">
                             <v-btn icon v-on="on">
-                                <v-icon>mdi-dots-vertical</v-icon>
+                                <v-icon>more_vert</v-icon>
                             </v-btn>
                         </template>
 
-                        <v-list>
-                            <v-list-item v-for="n in 5" :key="n" @click="() => {}">
-                                <v-list-item-title>Option {{ n }}</v-list-item-title>
+                        <v-list dense>
+                            <v-list-item @click="() => confirm.lifetime = true">
+                                <v-list-item-title>設定訊息存活時間</v-list-item-title>
+                            </v-list-item>
+                            <v-list-item @click="() => confirm.deleteAll = true">
+                                <v-list-item-title>清空記錄</v-list-item-title>
+                            </v-list-item>
+                            <v-divider></v-divider>
+                            <v-list-item :disabled="talk.type === 'single'">
+                                <v-list-item-title>離開群組</v-list-item-title>
                             </v-list-item>
                         </v-list>
                     </v-menu>
                 </v-app-bar>
             </div>
+
+            <v-overlay absolute :value="loading" opacity=".75" :z-index="100">
+                <v-progress-circular indeterminate color="grey lighten-1" size="24"></v-progress-circular>
+                <span>{{ loadMessage }}</span>
+            </v-overlay>
             <v-card
                 id="message-panel"
                 ref="messages"
@@ -56,10 +60,6 @@
                 </transition-group>
                 <talk-message v-for="msg in cacheMessages" :key="`c-${msg.id}`" :data="msg" unsend></talk-message>
             </v-card>
-            <!-- <v-card tile class="flex-grow-1 pa-2" color="grey darken-4">
-                <talk-message v-for="msg in talk.messages" :key="msg.id" :data="msg"></talk-message>
-                <talk-message v-for="msg in cacheMessages" :key="`c-${msg.id}`" :data="msg" unsend></talk-message>
-            </v-card>-->
             <v-card tile class="d-flex align-end pb-1" color="blue-grey darken-4">
                 <div class="px-2">
                     <v-btn icon>
@@ -86,6 +86,40 @@
             </v-card>
         </v-card>
         <!-- </div> -->
+
+        <v-dialog v-model="confirm.deleteAll" width="500">
+            <v-card>
+                <v-card-title class="headline grey lighten-2" primary-title>確認視窗</v-card-title>
+                <v-card-text class="pt-4">確定要刪除此群組的所有對話內容？</v-card-text>
+                <v-divider></v-divider>
+                <v-card-actions>
+                    <v-spacer></v-spacer>
+                    <v-btn text @click="() => confirm.deleteAll = false">取消</v-btn>
+                    <v-btn color="error" text @click="onDeleteAllMessage()">全部刪除</v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
+        <v-dialog v-model="confirm.lifetime" width="300">
+            <v-card>
+                <v-card-title class="headline grey lighten-2" primary-title>變更記錄刪除時間</v-card-title>
+                <v-text-field
+                    suffix="分鐘"
+                    :rules="[ruleLifetime]"
+                    v-model="input.lifetime"
+                    class="pa-4"
+                    color="primary"
+                    :hint="`設定上限為: ${maxLifetime} 分鐘`"
+                    label="記錄刪除時間"
+                ></v-text-field>
+                <v-divider></v-divider>
+                <v-card-actions>
+                    <v-spacer></v-spacer>
+                    <v-btn text @click="() => confirm.lifetime = false">取消</v-btn>
+                    <v-btn color="primary" text @click="onSaveLifeTime()">儲存</v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
     </v-card>
 </template>
 <script lang="ts">
@@ -104,21 +138,34 @@ let autoincrement = 0;
 export default Vue.extend({
     name: 'TalkContent',
     data: (): {
-        input: { message: string };
+        input: { message: string; lifetime: number };
         cacheMessages: NTalk.TalkMessage[];
         loading: boolean;
+        loadMessage: string;
         messageHeight: number;
         noDownloadBefores: number;
         noDownloadAfters: number;
+        lastReadId: number;
+        confirm: {
+            deleteAll: boolean;
+            lifetime: boolean;
+        };
     } => ({
         input: {
             message: '',
+            lifetime: 0,
         },
         cacheMessages: [],
         loading: false,
+        loadMessage: '',
         messageHeight: 0,
         noDownloadBefores: 1,
         noDownloadAfters: 1,
+        lastReadId: 0,
+        confirm: {
+            deleteAll: false,
+            lifetime: false,
+        },
     }),
     computed: {
         talk(): NTalk.Talk | null {
@@ -131,6 +178,9 @@ export default Vue.extend({
             const talk = store.activeTalk;
             return talk ? talk.messages : [];
         },
+        maxLifetime() {
+            return store.config.maxLifetime;
+        },
     },
     watch: {
         talk: {
@@ -141,10 +191,18 @@ export default Vue.extend({
                 }
 
                 if (talk.id > 0) {
+                    talk.unread = 0;
+                    this.lastReadId = talk.lastReadId;
                     this.loadAfterMessages();
                 } else {
                     this.createSingleTalk('single', talk);
                 }
+            },
+        },
+        'talk.lifetime': {
+            immediate: true,
+            handler(value: number) {
+                this.input.lifetime = Number(value);
             },
         },
     },
@@ -168,6 +226,18 @@ export default Vue.extend({
             }
             store.unActiveTKey();
         },
+        lifetimeText(lifetime: number) {
+            const hours = Math.floor(lifetime / 60);
+            const minutes = lifetime % 60;
+            const texts: string[] = ['訊息存活時間: '];
+            if (hours) {
+                texts.push(`${hours}小時`);
+            }
+            if (minutes) {
+                texts.push(`${minutes}分`);
+            }
+            return texts.join(' ');
+        },
         onMessageScroll(e: any) {
             const divMessages: HTMLDivElement = e.target;
 
@@ -176,9 +246,6 @@ export default Vue.extend({
             if (bottomDistance < 10 && this.noDownloadAfters > 0) {
                 this.loadAfterMessages();
             }
-
-            // const
-            // const e.target.scrollTop);
         },
         onMessageResize() {
             const $messages: any = this.$refs.messages;
@@ -189,12 +256,46 @@ export default Vue.extend({
                 console.info(height);
             }
         },
+        ruleLifetime(value: string | number) {
+            const maxLifetime = this.maxLifetime;
+            return Number(value) <= maxLifetime || `不得大於 ${maxLifetime}`;
+        },
+        async onDeleteAllMessage() {
+            if (!this.talk) {
+                return;
+            }
+            if (this.loading) {
+                return;
+            }
+            this.loading = true;
+            this.loadMessage = '刪除記錄中 ... ';
+            this.confirm.deleteAll = false;
+            await store.deleteAllMessage(this.talk.id);
+            this.loading = false;
+        },
+        async onSaveLifeTime() {
+            if (!this.talk) {
+                return;
+            }
+            if (this.ruleLifetime(this.input.lifetime) !== true) {
+                return;
+            }
+            if (this.loading) {
+                return;
+            }
+            this.loading = true;
+            this.loadMessage = '變更記錄刪除時間 ... ';
+            this.confirm.lifetime = false;
+            await store.changeTalkLifetime(this.talk.id, this.input.lifetime);
+            this.loading = false;
+        },
+
         async createSingleTalk(type: NTalk.TalkType, talk: NTalk.Talk) {
             if (this.loading) {
                 return;
             }
             this.loading = true;
-
+            this.loadMessage = '建立對話中 ... ';
             return store
                 .createSingleTalk(talk.targetId, talk.key)
                 .then((res) => {
@@ -265,9 +366,27 @@ export default Vue.extend({
 </script>
 
 <style lang="scss">
-// .message-panel {
-//     overflow: auto;
-// }
+#message-panel {
+    /* width */
+    &::-webkit-scrollbar {
+        width: 5px;
+    }
+
+    /* Track */
+    &::-webkit-scrollbar-track {
+        background: #333;
+    }
+
+    /* Handle */
+    &::-webkit-scrollbar-thumb {
+        background: #777;
+    }
+
+    /* Handle on hover */
+    &::-webkit-scrollbar-thumb:hover {
+        background: #999;
+    }
+}
 /* 可以设置不同的进入和离开动画 */
 /* 设置持续时间和动画函数 */
 .slide-fade-enter-active {

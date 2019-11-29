@@ -1,9 +1,42 @@
 import Talk from '../models/Talk';
 import { TalkRepository } from './TalkRepository';
-import { Op } from 'sequelize';
+import { Op, QueryTypes } from 'sequelize';
 import { TalkMessage } from '../models/TalkMessage';
+import { sequelize } from '../config/database';
+import { log } from '../config/logger';
 
 export const TalkMessageRepository = {
+    async firstMessages(tids?: number[]) {
+        const whereTalks = tids ? `WHERE talk_id IN (:tids)` : '';
+        const sql = `
+            SELECT MIN(id) AS id, talk_id
+            FROM talk_message
+            ${whereTalks}
+            GROUP BY talk_id
+        `;
+
+        const rows = await sequelize.query<{ id: string }>(sql, {
+            replacements: { tids },
+            type: QueryTypes.SELECT,
+        });
+        const mids = rows.map((row) => Number(row.id));
+        return mids.length ? await TalkMessage.findAll({ where: { id: mids } }) : [];
+    },
+    async lastMessages(tids?: number[]) {
+        const whereTalks = tids ? `WHERE talk_id IN (:tids)` : '';
+        const sql = `
+            SELECT MAX(id) AS id, talk_id
+            FROM talk_message
+            ${whereTalks}
+            GROUP BY talk_id
+        `;
+        const rows = await sequelize.query<{ id: string }>(sql, {
+            replacements: { tids },
+            type: QueryTypes.SELECT,
+        });
+        const mids = rows.map((row) => Number(row.id));
+        return mids.length ? await TalkMessage.findAll({ where: { id: mids } }) : [];
+    },
     async loadMessageAfter(tid: number, mid: number, size = 15) {
         const options: any = {
             where: { talkId: tid },
@@ -55,6 +88,25 @@ export const TalkMessageRepository = {
         }
         return await TalkMessage.count({
             where,
+        });
+    },
+
+    async deleteMessageIdLessThan(tid: number, mid: number) {
+        return await TalkMessage.destroy({
+            where: {
+                id: {
+                    [Op.lte]: mid,
+                },
+                talk_id: tid,
+            },
+        });
+    },
+
+    async deleteAllMessage(tid: number) {
+        return await TalkMessage.destroy({
+            where: {
+                talk_id: tid,
+            },
         });
     },
 };

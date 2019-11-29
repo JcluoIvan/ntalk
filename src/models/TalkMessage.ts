@@ -3,8 +3,8 @@ import { sequelize } from '../config/database';
 
 export class TalkMessage extends Model {
     public id!: number;
-    public userId!: string;
-    public talkId!: string;
+    public userId!: number;
+    public talkId!: number;
     public content!: string;
     public createdAt!: Date;
 }

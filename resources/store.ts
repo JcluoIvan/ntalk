@@ -1,7 +1,6 @@
 import Vue from 'vue';
-import axios from 'axios';
+import axios, { AxiosResponse } from 'axios';
 import io from 'socket.io-client';
-import helpers from '@/helpers';
 import { resolve } from 'dns';
 import moment from 'moment';
 
@@ -33,20 +32,13 @@ const clientEmit = async <T = any>(event: string, data?: any): Promise<T> => {
 };
 
 const createTalk = (data: any): NTalk.Talk => {
-    const lastMessage = data.last_message || data.lastMessage;
     return {
-        lastMessage: lastMessage
-            ? {
-                  id: lastMessage.id,
-                  userId: lastMessage.userId,
-                  talkId: lastMessage.talkId,
-                  content: lastMessage.content,
-                  createdAt: lastMessage.createdAt,
-                  intCreatedAt: moment(lastMessage.createdAt).valueOf(),
-              }
-            : null,
+        lastMessage: data.lastMessage || null,
+        unread: 0,
+        lastReadId: 0,
         id: 0,
         avatar: '',
+        lifetime: 0,
         createdAt: '',
         name: '',
         type: 'single',
@@ -62,13 +54,10 @@ const store = new Vue({
         user: NTalk.UserSelf;
         users: NTalk.User[];
         notices: NTalk.NoticeMessage[];
-        source: {
-            talks: NTalk.Talk[];
-            joins: NTalk.TalkJoin[];
-        };
+        sourceTalks: NTalk.Talk[];
         activeTKey: number;
+        config: NTalk.SystemConfig;
         socket: {
-            errorMessage: string;
             status: SocketStatus;
         };
     } => ({
@@ -79,15 +68,14 @@ const store = new Vue({
             avatar: '',
             online: false,
         },
+        config: {
+            maxLifetime: 0,
+        },
         notices: [],
         users: [],
-        source: {
-            talks: [],
-            joins: [],
-        },
+        sourceTalks: [],
         activeTKey: 0,
         socket: {
-            errorMessage: '',
             status: SocketStatus.Disconnected,
         },
     }),
@@ -112,10 +100,11 @@ const store = new Vue({
             return this.socket.status === SocketStatus.Reconnecting;
         },
         talks(): NTalk.Talk[] {
-            return this.source.talks
+            return this.sourceTalks
                 .sort((a, b) => {
                     return (
-                        ((b.lastMessage && b.lastMessage.id) || b.id) - ((a.lastMessage && a.lastMessage.id) || a.id)
+                        ((b.lastMessage && b.lastMessage.id) || 0) - ((a.lastMessage && a.lastMessage.id) || 0) ||
+                        b.key - a.key
                     );
                 })
                 .slice();
@@ -130,8 +119,6 @@ const store = new Vue({
             const data = {
                 access_token: this.query.access_token,
             };
-            this.socket.errorMessage = '';
-
             return axios
                 .post<{
                     id: number;
@@ -145,9 +132,6 @@ const store = new Vue({
                     this.user.name = res.data.name;
                     this.user.avatar = res.data.avatar;
                     this.connect();
-                })
-                .catch((res) => {
-                    this.socket.errorMessage = helpers.value(res, 'response.data.message', res.message);
                 });
         },
 
@@ -162,32 +146,59 @@ const store = new Vue({
             client.on('connect', () => {
                 this.socket.status = SocketStatus.Connected;
                 console.info('connect');
-
-                this.reloadTalks();
+                this.init();
             });
             client.on('reconnect_attempt', () => {
                 this.socket.status = SocketStatus.Reconnecting;
                 console.warn('RECONNECTING');
             });
             client.on('error', (message: string) => {
-                this.socket.errorMessage = message;
+                this.notice(message, 'error');
             });
+
             client.on('disconnect', () => {
                 this.socket.status = SocketStatus.Disconnected;
                 console.error('disconnect');
             });
 
             client.on('error.message', (message: string) => {
-                console.error(message);
-                this.socket.errorMessage = message;
+                this.notice(message, 'error');
+            });
+
+            client.on('talk.update', (data: any) => {
+                this.updateTalk(data);
             });
 
             client.on('talk.message', (data: NTalk.TalkMessage) => {
-                console.info('talk.message', data);
-                const talk = this.source.talks.find((t) => t.id === data.talkId);
+                const talk = this.sourceTalks.find((t) => t.id === data.talkId);
                 if (talk) {
                     talk.lastMessage = data;
                     talk.messages.push(data);
+                    if (!this.activeTalk || this.activeTalk.id !== talk.id) {
+                        talk.unread += 1;
+                    }
+                }
+            });
+
+            client.on('talk.message.delete-less', (data: { talkId: number; messageId: number }) => {
+                const talk = this.sourceTalks.find((t) => t.id === data.talkId);
+                if (talk) {
+                    talk.messages = talk.messages.filter((m) => m.id >= data.messageId);
+                }
+            });
+
+            client.on('talk.message.delete-all', (data: { talkId: number }) => {
+                const talk = this.sourceTalks.find((t) => t.id === data.talkId);
+                if (talk) {
+                    talk.messages = [];
+                    talk.unread = 0;
+                    talk.lastMessage = null;
+                }
+            });
+            client.on('talk.lifetime', (data: { talkId: number; lifetime: number }) => {
+                const talk = this.sourceTalks.find((t) => t.id === data.talkId);
+                if (talk) {
+                    talk.lifetime = data.lifetime;
                 }
             });
 
@@ -195,20 +206,45 @@ const store = new Vue({
              * 更新成員
              */
             client.on('users', (users: NTalk.User[]) => {
-                console.info('users', users);
                 this.users = users;
             });
         },
+
+        notice(message: string, option: NTalk.NoticeType | NTalk.NoticeOption) {
+            const opt: NTalk.NoticeOption =
+                typeof option === 'string' ? { type: option, timeout: 3000, x: 'right', y: 'top' } : option;
+
+            this.notices.push({
+                message,
+                ...opt,
+            });
+        },
+        unActiveTKey() {
+            store.activeTKey = -1;
+        },
+        async init() {
+            await this.reloadConfig();
+            await this.reloadUsers();
+            await this.reloadTalks();
+        },
+        async reloadConfig() {
+            this.config = await clientEmit<NTalk.SystemConfig>('config');
+        },
         async reloadTalks() {
-            const { talks, joins, singleJoins } = await clientEmit<{
+            const { talks, joins, targetJoins } = await clientEmit<{
                 talks: NTalk.Talk[];
                 joins: NTalk.TalkJoin[];
-                singleJoins: NTalk.SingleTalkJoin[];
+                targetJoins: NTalk.TalkTargetJoin[];
             }>('talk.all');
             const rows = talks.map<NTalk.Talk>((o: any) => {
-                const sjoin = singleJoins.find((sj) => sj.talkId === o.id);
+                const sjoin = targetJoins.find((sj) => sj.talkId === o.id);
+                const { unread, lastReadId } = joins.find((j) => j.talkId === o.id) || { unread: 0, lastReadId: 0 };
                 o.targetId = sjoin ? sjoin.userId : 0;
-                const t = createTalk({ ...o });
+                const t = createTalk({
+                    unread,
+                    lastReadId,
+                    ...o,
+                });
                 return t;
             });
 
@@ -228,21 +264,11 @@ const store = new Vue({
                     rows.push(newTalk);
                 });
 
-            this.source.talks = rows;
-            this.source.joins = joins;
+            this.sourceTalks = rows;
         },
-
-        notice(message: string, option: NTalk.NoticeType | NTalk.NoticeOption) {
-            const opt: NTalk.NoticeOption =
-                typeof option === 'string' ? { type: option, timeout: 3000, x: 'right', y: 'top' } : option;
-
-            this.notices.push({
-                message,
-                ...opt,
-            });
-        },
-        unActiveTKey() {
-            store.activeTKey = -1;
+        async reloadUsers() {
+            const users = await clientEmit<NTalk.User[]>('users');
+            this.users = users;
         },
 
         async createSingleTalk(targetId: number, tkey: number) {
@@ -250,14 +276,45 @@ const store = new Vue({
                 'talk.create-single',
                 targetId,
             );
-            const newTalk = createTalk({ ...talk, targetId, messages: [] });
-            this.source.talks = this.source.talks.filter((t) => t.key !== tkey);
-            this.source.talks.push(newTalk);
+            return this.updateTalk({
+                key: tkey,
+                talk,
+                join,
+                targetJoin: {
+                    talkId: talk.id,
+                    userId: targetId,
+                },
+            });
+        },
 
-            if (join) {
-                this.source.joins = this.source.joins.filter((j) => j.talkId !== talk.id);
-                this.source.joins.push(join);
+        async updateTalk(data: {
+            key: number;
+            talk: NTalk.Talk;
+            join: NTalk.TalkJoin;
+            targetJoin?: NTalk.TalkTargetJoin;
+        }) {
+            console.warn(data);
+            const targetId = data.talk.type === 'single' && data.targetJoin ? data.targetJoin.userId : 0;
+            const target = this.users.find((u) => u.id === targetId);
+
+            const oldTalk = targetId
+                ? this.sourceTalks.find((t) => t.targetId === targetId)
+                : this.sourceTalks.find((t) => t.key === data.key);
+            const oldKey = (oldTalk && oldTalk.key) || 0;
+
+            const newTalk = createTalk({
+                key: data.key || oldKey,
+                ...data.talk,
+                name: target ? target.name : data.talk.name,
+                unread: data.join.unread,
+                lastReadId: data.join.lastReadId,
+                targetId,
+                messages: [],
+            });
+            if (oldKey) {
+                this.sourceTalks = this.sourceTalks.filter((t) => t.key !== oldKey);
             }
+            this.sourceTalks.push(newTalk);
             return newTalk;
         },
 
@@ -267,6 +324,15 @@ const store = new Vue({
                 content,
             };
             return await clientEmit<number>('talk.message', data);
+        },
+
+        async setTalkMessageExpire(tid: number, lifetime: number) {},
+
+        async deleteAllMessage(tid: number) {
+            return await clientEmit<boolean>('talk.message.delete-all', tid);
+        },
+        async changeTalkLifetime(tid: number, lifetime: number) {
+            return await clientEmit<boolean>('talk.lifetime', { talkId: tid, lifetime });
         },
         async loadMessageBefore(tid: number, mid = 0) {
             const data = {

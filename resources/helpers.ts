@@ -1,4 +1,4 @@
-export default {
+export const helpers = {
     hasKeys(obj: any, key: string) {
         let target = obj;
         return key.split('.').every((k) => {

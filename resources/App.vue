@@ -8,7 +8,7 @@
                 <talk-content></talk-content>
             </div>
         </div>
-        <access-login v-show="!online"></access-login>
+        <access-login :visible="!online"></access-login>
         <notice-message></notice-message>
     </v-app>
 </template>

@@ -4,8 +4,23 @@ import { sequelize } from '../config/database';
 import { QueryTypes, Op } from 'sequelize';
 import { log } from '../config/logger';
 import { TalkMessage } from '../models/TalkMessage';
+import { env } from '../config/env';
 
 export const TalkRepository = {
+    async reloadLifetime() {
+        await Talk.update(
+            {
+                lifetime: env.MAX_MESSAGE_LIFETIME,
+            },
+            {
+                where: {
+                    lifetime: {
+                        [Op.or]: [{ [Op.gt]: env.MAX_MESSAGE_LIFETIME }, { [Op.eq]: 0 }],
+                    },
+                },
+            },
+        );
+    },
     /**
      * @returns {Promise<Talk[]>}
      */
@@ -37,7 +52,7 @@ export const TalkRepository = {
         return talks;
     },
 
-    async getSingleJoinsByUser(uid: number): Promise<{ talkId: number; userId: number }[]> {
+    async getTargetJoinsByUser(uid: number): Promise<{ talkId: number; userId: number }[]> {
         const sql = `
             SELECT mtj.talk_id as talkId, mtj.user_id as userId
             FROM talk_join AS mtj
@@ -61,6 +76,10 @@ export const TalkRepository = {
                 user_id: uid,
             },
         });
+    },
+
+    async updateLifetime(id: number, lifetime: number) {
+        return await Talk.update({ lifetime }, { where: { id } });
     },
 
     /**

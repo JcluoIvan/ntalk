@@ -1,13 +1,14 @@
 import { log } from '../config/logger';
 import { User } from '../models/User';
 import { SocketResponseError } from '../error';
-import { env } from '../config/env';
 import { TalkRepository } from '../repositories/TalkRepository';
 import { UserRepository } from '../repositories/UserRepository';
 import { TalkService } from './TalkService';
 import { TalkMessage } from '../models/TalkMessage';
 import { TalkMessageRepository } from '../repositories/TalkMessageRepository';
-
+import { CronJob } from 'cron';
+import moment = require('moment');
+import { env } from '../config/env';
 type ClientOnResponse = (data: any) => void;
 type ClientOnCallback = (data: any, response: ClientOnResponse) => Promise<void>;
 interface Client {
@@ -43,11 +44,30 @@ const findClient = (uid: number) => {
 };
 
 const clientEventHandler = {
+    async onConfig(uid: number, response: ClientOnResponse) {
+        response({
+            maxLifetime: env.MAX_MESSAGE_LIFETIME,
+        });
+    },
+    async onUsers(uid: number, response: ClientOnResponse) {
+        const users = await UserRepository.users();
+        const data = users.map((user) => {
+            return {
+                id: user.id,
+                name: user.name,
+                avatar: user.avatar,
+                online: mapClients.has(user.id),
+            };
+        });
+        response(data);
+    },
     async onTalks(uid: number, response: ClientOnResponse) {
         const talks = await TalkRepository.getByUser(uid);
         const joins = await TalkRepository.getTalkJoinsByUser(uid);
-        const singleJoins = await TalkRepository.getSingleJoinsByUser(uid);
-        response({ talks, joins, singleJoins });
+        const targetJoins = await TalkRepository.getTargetJoinsByUser(uid);
+        const tids = talks.map((t) => t.id);
+        const lastMessages = await TalkMessageRepository.lastMessages(tids);
+        response({ talks, joins, targetJoins, lastMessages });
     },
 
     async onCreateSingleTalk(uid: number, data: any, response: ClientOnResponse) {
@@ -66,11 +86,11 @@ const clientEventHandler = {
         }
         response({
             talk,
-            mapping: join,
+            join,
         });
+        clientService.broadcastNewTalk(uid, talk.id);
     },
     async onSendMessage(uid: number, data: any, response: ClientOnResponse) {
-        const client = findClient(uid);
         const tid = Number(data.talkId);
         const content = data.content || '';
 
@@ -81,7 +101,7 @@ const clientEventHandler = {
             throw new SocketResponseError('群組不存在');
         }
 
-        const message = await TalkRepository.sendMessage(uid, tid, content);
+        const message = await TalkService.sendMessage(tid, uid, content);
 
         response(message);
 
@@ -113,6 +133,26 @@ const clientEventHandler = {
             messages,
             nums: nums - messages.length,
         });
+    },
+    async onTalkMessageDeleteAll(uid: number, tid: number, response: ClientOnResponse) {
+        if (!(await TalkService.talkHasUser(tid, uid))) {
+            throw new SocketResponseError('群組不存在');
+        }
+
+        await TalkService.deleteAllTalkMessage(tid);
+        await clientService.broadcastMessageDeleted(tid);
+        response(true);
+    },
+    async onChangeTalkLifetime(uid: number, data, response: ClientOnResponse) {
+        const tid = Number(data.talkId);
+        const lifetime = Number(data.lifetime);
+        if (!(await TalkService.talkHasUser(tid, uid))) {
+            throw new SocketResponseError('群組不存在');
+        }
+
+        await TalkService.changeTalkLifetime(tid, lifetime);
+        await clientService.broadcastChangeTalkLifeTime(tid);
+        response(true);
     },
 };
 
@@ -155,6 +195,75 @@ const clientService = {
         ioServer.emit('users', data);
     },
 
+    async broadcastNewTalk(uid: number, tid: number) {
+        const item = TalkService.find(tid);
+        if (!item) {
+            log.error('資料異常, 查無對話群組');
+            return;
+        }
+        const { talk, lastMessage } = item;
+
+        const joins = talk.TalkJoins.filter((j) => j.userId !== uid);
+        const targetJoin = TalkService.findTalkJoin(talk.id, uid);
+
+        const talkData: any = talk.toJSON();
+        delete talkData.TalkJoins;
+
+        joins.forEach((join) => {
+            const client = mapClients.get(join.userId);
+            if (!client) {
+                return;
+            }
+            client.socket.emit('talk.update', {
+                talk: talkData,
+                join,
+                lastMessage,
+                targetJoin,
+            });
+        });
+    },
+
+    async broadcastChangeTalkLifeTime(tid) {
+        const item = TalkService.find(tid);
+        if (!item) {
+            log.error('資料異常！ 對話群組不存在');
+            return;
+        }
+        const { talk } = item;
+        talk.TalkJoins.forEach((join) => {
+            const client = mapClients.get(join.userId);
+            if (!client) {
+                return;
+            }
+            client.socket.emit('talk.lifetime', { talkId: talk.id, lifetime: talk.lifetime });
+        });
+    },
+
+    async broadcastMessageDeleted(tid: number) {
+        const item = TalkService.find(tid);
+        if (!item) {
+            log.error('資料異常！ 對話群組不存在');
+            return;
+        }
+        const { talk, firstMessage } = item;
+        talk.TalkJoins.forEach((join) => {
+            const client = mapClients.get(join.userId);
+            if (!client) {
+                return;
+            }
+            if (firstMessage) {
+                client.socket.emit('talk.message.delete-less', {
+                    talkId: talk.id,
+                    messageId: firstMessage.id,
+                });
+            } else {
+                client.socket.emit('talk.message.delete-all', {
+                    talkId: talk.id,
+                });
+            }
+        });
+    },
+
     async broadcastTalkMessage(tid: number, message: TalkMessage) {
         const uids = TalkService.talkJoinUsers(tid);
         uids.forEach((uid) => {
@@ -172,6 +281,11 @@ const clientService = {
  */
 export const handlerIOServer = async (io: SocketIO.Server) => {
     ioServer = io;
+
+    // 重設存活時間
+    await TalkRepository.reloadLifetime();
+
+    // 載入所有對話
     await TalkService.reloadTalks();
 
     io.on('connection', async (socket) => {
@@ -219,6 +333,14 @@ export const handlerIOServer = async (io: SocketIO.Server) => {
             user,
         });
 
+        clientOn(socket, 'config', async (data, response) => {
+            await clientEventHandler.onConfig(user.id, response);
+        });
+
+        clientOn(socket, 'users', async (data, response) => {
+            await clientEventHandler.onUsers(user.id, response);
+        });
+
         clientOn(socket, 'talk.all', async (data, response) => {
             log.warn('talk.all');
             await clientEventHandler.onTalks(user.id, response);
@@ -239,8 +361,45 @@ export const handlerIOServer = async (io: SocketIO.Server) => {
         clientOn(socket, 'talk.load-message.after', async (data, response) => {
             await clientEventHandler.onLoadMessageAfter(user.id, data, response);
         });
+
+        clientOn(socket, 'talk.message.delete-all', async (data, response) => {
+            await clientEventHandler.onTalkMessageDeleteAll(user.id, data, response);
+        });
+
+        clientOn(socket, 'talk.lifetime', async (data, response) => {
+            await clientEventHandler.onChangeTalkLifetime(user.id, data, response);
+        });
+
         clientService.broadcastOnlineUsers().catch((err) => {
             log.error(err.stack);
         });
     });
+
+    /**
+     *
+     * Seconds: 0-59
+     * Minutes: 0-59
+     * Hours: 0-23
+     * Day of Month: 1-31
+     * Months: 0-11 (Jan-Dec)
+     * Day of Week: 0-6 (Sun-Sat)
+     */
+
+    /**
+     * 每分鐘執行一次
+     */
+    const clearExpireTalkMessageJob = new CronJob('0 * * * * *', () => {
+        const now = moment().valueOf();
+
+        TalkService.all().filter(async ({ talk, firstMessage }) => {
+            const lifetime = talk.lifetime;
+            const firstMessageAt = firstMessage ? moment(firstMessage.createdAt).add(lifetime, 'minute') : null;
+            console.warn('Frist > ', firstMessageAt);
+            if (firstMessageAt && now > firstMessageAt.valueOf()) {
+                await TalkService.clearExpireMessages(talk.id);
+                clientService.broadcastMessageDeleted(talk.id);
+            }
+        });
+    });
+    clearExpireTalkMessageJob.start();
 };

@@ -15,6 +15,16 @@ mix.alias({ '@': '/resources' }).webpackConfig({
     output: {
         chunkFilename: 'js/[name].js?id=[hash]',
     },
+    module: {
+        rules: [
+            // your rules may go here
+            // next rules are just example, you can modify them according to your needs
+            {
+                test: /\.(woff|woff2|eot|ttf|svg|wav)(\?.*$|$)/,
+                loader: 'file-loader?name=[name].[ext]?[hash]',
+            },
+        ],
+    },
 });
 
 if (mix.inProduction()) {
