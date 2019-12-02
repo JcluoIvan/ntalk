@@ -18,6 +18,9 @@ Vue.component('talk-content', require('@/components/TalkContent.vue').default);
 Vue.component('talk-message', require('@/components/TalkMessage.vue').default);
 Vue.component('notice-message', require('@/components/NoticeMessage.vue').default);
 Vue.component('sound-effect', require('@/components/SoundEffect.vue').default);
+Vue.component('app-menubar', require('@/components/AppMenubar.vue').default);
+Vue.component('group-talk-dialog', require('@/components/GroupTalkDialog.vue').default);
+Vue.component('confirm-dialog', require('@/components/ConfirmDialog.vue').default);
 
 const vuetify = new Vuetify({
     icons: {

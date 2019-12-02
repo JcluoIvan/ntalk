@@ -43,6 +43,7 @@ const createTalk = (data: any): NTalk.Talk => {
         name: '',
         type: 'single',
         messages: [],
+        users: [],
         targetId: 0,
         ...data,
         key: data.key ? data.key : ++autoincrementTalkKey,
@@ -59,6 +60,9 @@ const store = new Vue({
         config: NTalk.SystemConfig;
         socket: {
             status: SocketStatus;
+        };
+        appMenubar: {
+            visible: boolean;
         };
     } => ({
         user: {
@@ -77,6 +81,9 @@ const store = new Vue({
         activeTKey: 0,
         socket: {
             status: SocketStatus.Disconnected,
+        },
+        appMenubar: {
+            visible: false,
         },
     }),
     computed: {
@@ -109,9 +116,26 @@ const store = new Vue({
                 })
                 .slice();
         },
+        mapUsers() {
+            const mapUsers: { [id: number]: NTalk.User } = {};
+            this.users.forEach((user) => {
+                mapUsers[user.id] = user;
+            });
+            return mapUsers;
+        },
         activeTalk(): NTalk.Talk | null {
             const tkey = this.activeTKey;
             return this.talks.find((t) => t.key === tkey) || null;
+        },
+        talkAvatarTexts(): { key: number; name: string; ids: string[] }[] {
+            const talks = store.talks;
+            return talks.map(({ key, name, id, targetId }) => {
+                return {
+                    key,
+                    name: name.toUpperCase(),
+                    ids: [id.toString(), targetId.toString()],
+                };
+            });
         },
     },
     methods: {
@@ -165,8 +189,12 @@ const store = new Vue({
                 this.notice(message, 'error');
             });
 
+            client.on('user.update', (user: NTalk.User) => {
+                this.onUserUpdate(user);
+            });
+
             client.on('talk.update', (data: any) => {
-                this.updateTalk(data);
+                this.updateTalk({ talk: data });
             });
 
             client.on('talk.message', (data: NTalk.TalkMessage) => {
@@ -174,7 +202,9 @@ const store = new Vue({
                 if (talk) {
                     talk.lastMessage = data;
                     talk.messages.push(data);
-                    if (!this.activeTalk || this.activeTalk.id !== talk.id) {
+                    if (this.activeTalk && this.activeTalk.id === talk.id) {
+                        talk.lastReadId = data.id;
+                    } else {
                         talk.unread += 1;
                     }
                 }
@@ -206,7 +236,7 @@ const store = new Vue({
              * 更新成員
              */
             client.on('users', (users: NTalk.User[]) => {
-                this.users = users;
+                this.users = users.filter((u) => u.id !== this.user.id);
             });
         },
 
@@ -220,7 +250,87 @@ const store = new Vue({
             });
         },
         unActiveTKey() {
-            store.activeTKey = -1;
+            store.activeTKey = 0;
+        },
+        textAvatar(name: string, talkKey = 0) {
+            var txt = '';
+            const talkTexts = this.talkAvatarTexts;
+            if (!name) {
+                return talkKey;
+            }
+
+            for (let i = 1; i < name.length; i++) {
+                txt = name.substring(0, i).toUpperCase();
+                const exists = talkTexts.some(
+                    ({ key, name, ids }) => key !== talkKey && (name.startsWith(txt) || ids.indexOf(txt) >= 0),
+                );
+                if (!exists) {
+                    break;
+                }
+            }
+            return txt;
+        },
+        updateTalk(data: { key?: number; talk: NTalk.Talk }) {
+            let oldtalk =
+                this.sourceTalks.find((o) => {
+                    return (
+                        o.key === data.key ||
+                        o.id === data.talk.id ||
+                        (o.targetId > 0 && o.targetId === data.talk.targetId)
+                    );
+                }) || null;
+
+            let target: NTalk.User | null = null;
+            if (data.talk.targetId) {
+                target = this.users.find((u) => u.id === data.talk.targetId) || null;
+            }
+
+            const newTalk = createTalk({
+                key: (oldtalk && oldtalk.key) || 0,
+                ...(oldtalk || {}),
+                ...data.talk,
+                name: (target && target.name) || data.talk.name,
+                unread: (oldtalk && oldtalk.unread) || data.talk.unread,
+            });
+            if (oldtalk !== null) {
+                this.sourceTalks = this.sourceTalks.filter((o) => o !== oldtalk);
+            }
+            this.sourceTalks.push(newTalk);
+            return newTalk;
+        },
+        onUserUpdate(user: NTalk.User) {
+            if (user.id === this.user.id) {
+                this.user = { ...this.user, ...user };
+            } else {
+                this.users = this.users.filter((u) => u.id !== user.id);
+                this.users.push({
+                    ...user,
+                    id: user.id,
+                    online: !!user.online,
+                });
+                this.generateSingleTalk();
+            }
+        },
+        /** 建立未產生對話的 user  */
+        generateSingleTalk() {
+            const talks = this.sourceTalks;
+            this.users
+                .filter((u) => u.id !== this.user.id)
+                .forEach((u) => {
+                    const talk = talks.find((r) => r.type === 'single' && r.targetId === u.id);
+                    if (talk) {
+                        talk.name = u.name;
+                        return;
+                    }
+                    const newTalk = createTalk({
+                        targetId: u.id,
+                        type: 'single',
+                        name: u.name,
+                    });
+                    talks.push(newTalk);
+                });
+
+            this.sourceTalks = talks;
         },
         async init() {
             await this.reloadConfig();
@@ -231,91 +341,47 @@ const store = new Vue({
             this.config = await clientEmit<NTalk.SystemConfig>('config');
         },
         async reloadTalks() {
-            const { talks, joins, targetJoins } = await clientEmit<{
-                talks: NTalk.Talk[];
-                joins: NTalk.TalkJoin[];
-                targetJoins: NTalk.TalkTargetJoin[];
-            }>('talk.all');
-            const rows = talks.map<NTalk.Talk>((o: any) => {
-                const sjoin = targetJoins.find((sj) => sj.talkId === o.id);
-                const { unread, lastReadId } = joins.find((j) => j.talkId === o.id) || { unread: 0, lastReadId: 0 };
-                o.targetId = sjoin ? sjoin.userId : 0;
+            const talks = await clientEmit<NTalk.Talk[]>('talk.all');
+            this.sourceTalks = talks.map<NTalk.Talk>((o: any) => {
                 const t = createTalk({
-                    unread,
-                    lastReadId,
                     ...o,
                 });
                 return t;
             });
-
-            this.users
-                .filter((u) => u.id !== this.user.id)
-                .forEach((u) => {
-                    const talk = rows.find((r) => r.type === 'single' && r.targetId === u.id);
-                    if (talk) {
-                        talk.name = u.name;
-                        return;
-                    }
-                    const newTalk = createTalk({
-                        targetId: u.id,
-                        type: 'single',
-                        name: u.name,
-                    });
-                    rows.push(newTalk);
-                });
-
-            this.sourceTalks = rows;
+            console.info(...talks);
+            this.generateSingleTalk();
         },
         async reloadUsers() {
+            const uid = this.user.id;
             const users = await clientEmit<NTalk.User[]>('users');
-            this.users = users;
+            this.users = users
+                .filter((u) => u.id !== uid)
+                .map<NTalk.User>((user) => {
+                    return {
+                        ...user,
+                        id: user.id,
+                        online: !!user.online,
+                    };
+                });
         },
 
         async createSingleTalk(targetId: number, tkey: number) {
-            const { talk, join } = await clientEmit<{ talk: NTalk.Talk; join: NTalk.TalkJoin }>(
-                'talk.create-single',
-                targetId,
-            );
+            const talk = await clientEmit<NTalk.Talk>('talk.create-single', targetId);
             return this.updateTalk({
                 key: tkey,
                 talk,
-                join,
-                targetJoin: {
-                    talkId: talk.id,
-                    userId: targetId,
-                },
             });
         },
-
-        async updateTalk(data: {
-            key: number;
-            talk: NTalk.Talk;
-            join: NTalk.TalkJoin;
-            targetJoin?: NTalk.TalkTargetJoin;
-        }) {
-            console.warn(data);
-            const targetId = data.talk.type === 'single' && data.targetJoin ? data.targetJoin.userId : 0;
-            const target = this.users.find((u) => u.id === targetId);
-
-            const oldTalk = targetId
-                ? this.sourceTalks.find((t) => t.targetId === targetId)
-                : this.sourceTalks.find((t) => t.key === data.key);
-            const oldKey = (oldTalk && oldTalk.key) || 0;
-
-            const newTalk = createTalk({
-                key: data.key || oldKey,
-                ...data.talk,
-                name: target ? target.name : data.talk.name,
-                unread: data.join.unread,
-                lastReadId: data.join.lastReadId,
-                targetId,
-                messages: [],
-            });
-            if (oldKey) {
-                this.sourceTalks = this.sourceTalks.filter((t) => t.key !== oldKey);
+        async saveGroupTalk(id: number, name: string, users: number[]) {
+            const talk = await clientEmit<NTalk.Talk>('talk.save-group', { id, name, users });
+            return this.updateTalk({ talk });
+        },
+        async leaveGroupTalk(tid: number) {
+            const done = await clientEmit<boolean>('talk.leave', tid);
+            if (done) {
+                this.sourceTalks = this.sourceTalks.filter((t) => t.id !== tid);
             }
-            this.sourceTalks.push(newTalk);
-            return newTalk;
+            return done;
         },
 
         async sendMessage(tid: number, content: string) {
@@ -369,11 +435,16 @@ const store = new Vue({
             talk.messages = talk.messages.sort((a, b) => a.id - b.id);
 
             // 只保留 30筆
-            const numMessages = talk.messages.length;
-            const max = Math.max(30, talk.messages.length);
-            talk.messages = talk.messages.slice(numMessages - max);
+            talk.messages = talk.messages.slice(-30);
 
             return { nums, messages };
+        },
+        async saveUserName(name: string) {
+            const res = await clientEmit<boolean>('user.name', name);
+            if (res) {
+                this.user.name = name;
+            }
+            return res;
         },
     },
 });

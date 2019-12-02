@@ -15,6 +15,10 @@ export const TalkMessageRepository = {
             GROUP BY talk_id
         `;
 
+        if (tids.length === 0) {
+            return [];
+        }
+
         const rows = await sequelize.query<{ id: string }>(sql, {
             replacements: { tids },
             type: QueryTypes.SELECT,
@@ -30,6 +34,11 @@ export const TalkMessageRepository = {
             ${whereTalks}
             GROUP BY talk_id
         `;
+        
+        if (tids.length === 0) {
+            return [];
+        }
+
         const rows = await sequelize.query<{ id: string }>(sql, {
             replacements: { tids },
             type: QueryTypes.SELECT,

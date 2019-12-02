@@ -15,6 +15,19 @@ export const UserRepository = {
         return sha256(`${token}-${new Date().getTime()}-${Math.random()}`);
     },
 
+    async find(id: number) {
+        return await User.findByPk(id);
+    },
+
+    async updateUserName(id: number, name: string) {
+        return await User.update(
+            { name },
+            {
+                where: { id },
+            },
+        );
+    },
+
     async findWithoutToken(id: number) {
         return await User.scope('withoutToken').findByPk(id);
     },
@@ -25,6 +38,10 @@ export const UserRepository = {
 
     async exists(id: number) {
         return (await User.count({ where: { id } })) > 0;
+    },
+
+    async existsAll(ids: number[]) {
+        return (await User.count({ where: { id: ids } })) === ids.length;
     },
 
     async findOrCreateByToken(data: { token: string; name?: string }) {

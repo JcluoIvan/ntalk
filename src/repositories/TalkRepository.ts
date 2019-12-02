@@ -5,6 +5,7 @@ import { QueryTypes, Op } from 'sequelize';
 import { log } from '../config/logger';
 import { TalkMessage } from '../models/TalkMessage';
 import { env } from '../config/env';
+import _ from 'lodash';
 
 export const TalkRepository = {
     async reloadLifetime() {
@@ -81,6 +82,21 @@ export const TalkRepository = {
     async updateLifetime(id: number, lifetime: number) {
         return await Talk.update({ lifetime }, { where: { id } });
     },
+    async deleteTalk(id: number) {
+        const talkId = id;
+        await Talk.destroy({ where: { id } });
+        await TalkMessage.destroy({ where: { talkId } });
+        await TalkJoin.destroy({ where: { talkId } });
+    },
+    async leaveTalk(tid: number, uid: number) {
+        await TalkJoin.destroy({
+            where: { talkId: tid, userId: uid },
+        });
+        const nums = await TalkJoin.count({ where: { talkId: tid } });
+        if (nums === 0) {
+            await this.deleteTalk(tid);
+        }
+    },
 
     /**
      * @returns {Promise<Talk[]>}
@@ -118,12 +134,13 @@ export const TalkRepository = {
     },
 
     async createSingleTalk(uid: number, targetId: number) {
-        let newTalk;
+        let newTalk: Talk | null;
         await sequelize
             .transaction({}, async (transaction) => {
                 newTalk = await Talk.create(
                     {
                         type: TalkType.Single,
+                        lifetime: env.MAX_MESSAGE_LIFETIME,
                         name: '',
                         avatar: '',
                         creatorId: uid,
@@ -131,7 +148,6 @@ export const TalkRepository = {
                     { transaction },
                 );
 
-                log.info('>> ', newTalk.id);
                 await TalkJoin.bulkCreate(
                     [
                         { talkId: newTalk.id, userId: uid },
@@ -150,6 +166,52 @@ export const TalkRepository = {
         return newTalk;
     },
 
+    async createGroupTalk(uid: number, name: string, users: number[]) {
+        let newTalk: Talk | null = null;
+        const uids = _.uniq([uid, ...users]);
+        await sequelize
+            .transaction({}, async (transaction) => {
+                newTalk = await Talk.create(
+                    {
+                        type: TalkType.Group,
+                        lifetime: env.MAX_MESSAGE_LIFETIME,
+                        name,
+                        avatar: '',
+                        creatorId: uid,
+                    },
+                    { transaction },
+                );
+
+                const joinRows = uids.map((userId) => ({ talkId: newTalk.id, userId }));
+                await TalkJoin.bulkCreate(joinRows, { transaction });
+            })
+            .catch((err) => {
+                throw new err();
+            });
+        if (!newTalk) {
+            log.error(`對話群組建立失敗`);
+            throw new Error(`對話群組建立失敗`);
+        }
+        return newTalk;
+    },
+    async updateGroupTalk(uid: number, data: { id: number; name: string; users: number[] }) {
+        const talkId = data.id;
+        const uids = _.uniq([uid, ...data.users]);
+        const talk = await Talk.findByPk(data.id);
+        if (!talk) {
+            throw new Error(`not found talk , id = ${data.id}`);
+        }
+
+        talk.name = data.name;
+
+        await sequelize.transaction({}, async (transaction) => {
+            await talk.save({ transaction });
+            await TalkJoin.destroy({ where: { talkId } });
+            const joinRows = uids.map((userId) => ({ talkId, userId }));
+            await TalkJoin.bulkCreate(joinRows, { transaction });
+        });
+        return talk;
+    },
     async findTalkMapping(uid: number, tid: number) {
         return await TalkJoin.findOne({ where: { talk_id: tid, user_id: uid } });
     },

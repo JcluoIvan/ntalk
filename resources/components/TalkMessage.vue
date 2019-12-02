@@ -1,21 +1,37 @@
 <template>
-    <div class="d-flex pa-2" :class="className">
-        <v-card class="d-inline-flex" max-width="75%">
-            <v-list class="px-4 py-1" dark :class="messageClass">
-                <v-list-item-content>
-                    <v-list-item-title>
-                        <div class="message-content" v-text="message.content"></div>
-                    </v-list-item-title>
-                    <v-list-item-subtitle class="text-right pt-2">
-                        <v-icon v-if="unsend">watch_later</v-icon>
-                        <label
-                            v-else
-                            class="created-at blue-grey--text text--lighten-3"
-                        >{{ message.createdAt | dt('A HH:mm')}}</label>
-                    </v-list-item-subtitle>
-                </v-list-item-content>
-            </v-list>
-        </v-card>
+    <div :id="`message-${message.id}`">
+        <div class="d-flex pa-2" :class="className">
+            <v-card class="d-inline-flex" max-width="75%" v-if="message.userId">
+                <v-list class="px-4 py-1" dark :class="messageClass">
+                    <v-list-item-content>
+                        <v-list-item-title>
+                            <div class="message-content" v-text="message.content"></div>
+                        </v-list-item-title>
+                        <v-list-item-subtitle class="text-right pt-2">
+                            <v-icon v-if="unsend">watch_later</v-icon>
+
+                            <div
+                                v-else-if="isSelf"
+                                class="created-at blue-grey--text text--lighten-3"
+                            >
+                                <span>{{ message.createdAt | dt('A HH:mm')}}</span>
+                            </div>
+                            <div v-else class="created-at blue-grey--text text--lighten-3">
+                                <span>{{ user.name }}</span>
+                                <span>-</span>
+                                <span>{{ message.createdAt | dt('A HH:mm')}}</span>
+                            </div>
+                        </v-list-item-subtitle>
+                    </v-list-item-content>
+                </v-list>
+            </v-card>
+
+            <v-card v-else class="system-message text-center flex-grow-1">
+                {{ message.content }} -
+                {{ message.createdAt | dt('A HH:mm')}}
+            </v-card>
+        </div>
+        <v-card v-if="message.id === lastReadId" class="text-center ma-2">以下未讀訊息</v-card>
     </div>
 </template>
 
@@ -26,10 +42,20 @@ export default Vue.extend({
     props: {
         unsend: Boolean,
         data: Object,
+        lastReadId: Number,
     },
     computed: {
         message(): NTalk.TalkMessage {
             return this.data as any;
+        },
+        user(): NTalk.User {
+            return (
+                store.mapUsers[this.message.userId] || {
+                    id: 0,
+                    name: 'unknown',
+                    avatar: '',
+                }
+            );
         },
         className(): any {
             return {
@@ -60,6 +86,9 @@ export default Vue.extend({
 
 .created-at {
     font-family: monospace;
+}
+.system-message {
+    font-style: italic;
 }
 </style>
 

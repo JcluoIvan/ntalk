@@ -24,4 +24,54 @@ html {
     height: 1rem;
 }
 
+.custom-scrollbar {
+    /* width */
+    &::-webkit-scrollbar {
+        width: 5px;
+    }
 
+    /* Track */
+    &::-webkit-scrollbar-track {
+        background: #333;
+    }
+
+    /* Handle */
+    &::-webkit-scrollbar-thumb {
+        background: #777;
+    }
+
+    /* Handle on hover */
+    &::-webkit-scrollbar-thumb:hover {
+        background: #999;
+    }
+}
+
+/* 可以设置不同的进入和离开动画 */
+/* 设置持续时间和动画函数 */
+.slide-x-fade-enter-active {
+    transition: all 0.3s ease;
+}
+.slide-x-fade-leave-active {
+    display: none;
+    transition: none;
+}
+.slide-x-fade-enter, .slide-x-fade-leave-to
+/* .slide-fade-leave-active for below version 2.1.8 */ {
+    transform: translateX(10px);
+    opacity: 0;
+}
+
+/* 可以设置不同的进入和离开动画 */
+/* 设置持续时间和动画函数 */
+.slide-x-reverse-fade-enter-active {
+    transition: all 0.3s ease;
+}
+.slide-x-reverse-fade-leave-active {
+    display: none;
+    transition: none;
+}
+.slide-x-reverse-fade-enter, .slide-x-reverse-fade-leave-to
+/* .slide-fade-leave-active for below version 2.1.8 */ {
+    transform: translateX(-10px);
+    opacity: 0;
+}

@@ -9,6 +9,7 @@ import { TalkMessageRepository } from '../repositories/TalkMessageRepository';
 import { CronJob } from 'cron';
 import moment = require('moment');
 import { env } from '../config/env';
+import Talk from '../models/Talk';
 type ClientOnResponse = (data: any) => void;
 type ClientOnCallback = (data: any, response: ClientOnResponse) => Promise<void>;
 interface Client {
@@ -34,14 +35,6 @@ const clientOn = (socket: SocketIO.Socket, event: string, callback: ClientOnCall
         }
     });
 };
-const findClient = (uid: number) => {
-    const client = mapClients.get(uid) || null;
-    if (!client) {
-        log.error('連線異常，請重新連線');
-        throw new SocketResponseError('，請重新連線');
-    }
-    return client;
-};
 
 const clientEventHandler = {
     async onConfig(uid: number, response: ClientOnResponse) {
@@ -61,35 +54,70 @@ const clientEventHandler = {
         });
         response(data);
     },
+    async onUpdateUserName(uid: number, name: string, response: ClientOnResponse) {
+        const client = mapClients.get(uid);
+        if (!client) {
+            log.error('查無使用者資料(嚴重錯誤)');
+            throw new SocketResponseError('查無使用者資料');
+        }
+
+        if (!name) {
+            throw new SocketResponseError('名稱不得為空值');
+        }
+
+        client.user.name = name;
+        await client.user.save();
+
+        clientService.broadcastUserUpdate(uid);
+        response(true);
+    },
     async onTalks(uid: number, response: ClientOnResponse) {
-        const talks = await TalkRepository.getByUser(uid);
         const joins = await TalkRepository.getTalkJoinsByUser(uid);
-        const targetJoins = await TalkRepository.getTargetJoinsByUser(uid);
-        const tids = talks.map((t) => t.id);
-        const lastMessages = await TalkMessageRepository.lastMessages(tids);
-        response({ talks, joins, targetJoins, lastMessages });
+        const talks = joins.map((tj) => {
+            try {
+                return TalkService.toTalkData(tj.talkId, uid);
+            } catch (err) {
+                throw new SocketResponseError(err.message);
+            }
+        });
+        response(talks);
     },
 
     async onCreateSingleTalk(uid: number, data: any, response: ClientOnResponse) {
         const targetId = Number(data);
-        if (!(await UserRepository.exists(targetId))) {
-            throw new SocketResponseError(`使用者不存在: ${targetId}`);
-        }
-        let talk = await TalkRepository.findSingleTalk(uid, targetId);
-        if (!talk) {
-            talk = await TalkRepository.createSingleTalk(uid, targetId);
-        }
-        await TalkService.reloadTalk(talk.id);
-        const join = await TalkRepository.findTalkMapping(uid, talk.id);
-        if (!join) {
-            throw new SocketResponseError(`對話建立流程失敗，缺少 talk join data`);
-        }
-        response({
-            talk,
-            join,
-        });
-        clientService.broadcastNewTalk(uid, talk.id);
+        const tid = await TalkService.createSingleTalk(uid, targetId);
+        response(TalkService.toTalkData(tid, uid));
+        clientService.broadcastTalkUpdate(uid, tid);
     },
+
+    async onSaveGroupTalk(uid: number, data: any, response: ClientOnResponse) {
+        const id: number = Number(data.id) || 0;
+        const name: string = data.name;
+        const users: number[] = data.users;
+        const tid = await TalkService.saveGroupTalk(uid, {
+            id,
+            name,
+            users,
+        });
+        response(TalkService.toTalkData(tid, uid));
+        clientService.broadcastTalkUpdate(uid, tid);
+    },
+
+    async onLeaveTalk(uid: number, tid: number, response: ClientOnResponse) {
+        const user = await UserRepository.find(uid);
+        if (!user) {
+            log.error(`嚴重錯誤, 使用者不存在 : ${uid}`);
+            throw new SocketResponseError(`使用者不存在 : ${uid}`);
+        }
+        await TalkService.leaveTalk(tid, uid);
+        if (TalkService.exists(tid)) {
+            const message = await TalkService.sendMessage(tid, 0, `${user.name} 離開群組`);
+            clientService.broadcastTalkMessage(tid, message);
+            clientService.broadcastTalkUpdate(uid, tid);
+        }
+        response(true);
+    },
+
     async onSendMessage(uid: number, data: any, response: ClientOnResponse) {
         const tid = Number(data.talkId);
         const content = data.content || '';
@@ -157,8 +185,17 @@ const clientEventHandler = {
 };
 
 const clientService = {
-    get clients() {
+    clients() {
         return Array.from(mapClients.values());
+    },
+
+    toUserData(user: User) {
+        return {
+            id: user.id,
+            name: user.name,
+            avatar: user.avatar,
+            online: mapClients.has(user.id),
+        };
     },
 
     getClient(uid: number, throwError = true) {
@@ -179,50 +216,46 @@ const clientService = {
     },
 
     /**
+     * 更新使用者資料
+     */
+    async broadcastUserUpdate(id) {
+        const client = mapClients.get(id);
+        const udata = client ? clientService.toUserData(client.user) : null;
+        if (!udata) {
+            return;
+        }
+
+        clientService.clients().forEach((client) => {
+            client.socket.emit('user.update', udata);
+        });
+    },
+
+    /**
      * 通知所有用戶更新在線用戶
      * @async
      */
-    async broadcastOnlineUsers() {
+    async broadcastUsers() {
         const users = await UserRepository.users();
-        const data = users.map((user) => {
-            return {
-                id: user.id,
-                name: user.name,
-                avatar: user.avatar,
-                online: mapClients.has(user.id),
-            };
-        });
+        const data = users.map((user) => clientService.toUserData(user));
+        console.info(data);
         ioServer.emit('users', data);
     },
 
-    async broadcastNewTalk(uid: number, tid: number) {
+    async broadcastTalkUpdate(uid: number, tid: number) {
         const item = TalkService.find(tid);
         if (!item) {
             log.error('資料異常, 查無對話群組');
             return;
         }
-        const { talk, lastMessage } = item;
-
-        const joins = talk.TalkJoins.filter((j) => j.userId !== uid);
-        const targetJoin = TalkService.findTalkJoin(talk.id, uid);
-
-        const talkData: any = talk.toJSON();
-        delete talkData.TalkJoins;
-
+        const joins = item.talk.TalkJoins.filter((j) => j.userId !== uid);
         joins.forEach((join) => {
             const client = mapClients.get(join.userId);
             if (!client) {
                 return;
             }
-            client.socket.emit('talk.update', {
-                talk: talkData,
-                join,
-                lastMessage,
-                targetJoin,
-            });
+            client.socket.emit('talk.update', TalkService.toTalkData(tid, client.user.id));
         });
     },
-
     async broadcastChangeTalkLifeTime(tid) {
         const item = TalkService.find(tid);
         if (!item) {
@@ -341,6 +374,10 @@ export const handlerIOServer = async (io: SocketIO.Server) => {
             await clientEventHandler.onUsers(user.id, response);
         });
 
+        clientOn(socket, 'user.name', async (data, response) => {
+            await clientEventHandler.onUpdateUserName(user.id, data, response);
+        });
+
         clientOn(socket, 'talk.all', async (data, response) => {
             log.warn('talk.all');
             await clientEventHandler.onTalks(user.id, response);
@@ -348,6 +385,14 @@ export const handlerIOServer = async (io: SocketIO.Server) => {
 
         clientOn(socket, 'talk.create-single', async (data, response) => {
             await clientEventHandler.onCreateSingleTalk(user.id, data, response);
+        });
+
+        clientOn(socket, 'talk.save-group', async (data, response) => {
+            await clientEventHandler.onSaveGroupTalk(user.id, data, response);
+        });
+
+        clientOn(socket, 'talk.leave', async (data, response) => {
+            await clientEventHandler.onLeaveTalk(user.id, data, response);
         });
 
         clientOn(socket, 'talk.message', async (data, response) => {
@@ -370,9 +415,7 @@ export const handlerIOServer = async (io: SocketIO.Server) => {
             await clientEventHandler.onChangeTalkLifetime(user.id, data, response);
         });
 
-        clientService.broadcastOnlineUsers().catch((err) => {
-            log.error(err.stack);
-        });
+        clientService.broadcastUserUpdate(user.id);
     });
 
     /**
