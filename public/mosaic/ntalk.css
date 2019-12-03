@@ -1,0 +1,99 @@
+#ntalk-app {
+    position: fixed;
+    width: 300px;
+    height: 400px;
+    border: 1px solid #ccc;
+}
+#ntalk-app.pos-right {
+    right: 20px;
+}
+#ntalk-app.pos-left {
+    left: 0;
+}
+#ntalk-app.pos-bottom {
+    bottom: 0;
+}
+#ntalk-app.pos-top {
+    top: 0;
+}
+#ntalk-app.minimum {
+    height: 0px;
+}
+
+#ntalk-app #app-background {
+    position: absolute;
+    z-index: 100;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 100%;
+    display: none;
+}
+#ntalk-app #ntalk-toolbar {
+    position: absolute;
+    background: #333;
+    color: #fff;
+    width: 100%;
+    display: flex;
+    display: -webkit-flex;
+    opacity: 0;
+    transition: 150ms;
+}
+#ntalk-app:hover #ntalk-toolbar,
+#ntalk-app.minimum #ntalk-toolbar,
+#ntalk-app.on-move #ntalk-toolbar {
+    opacity: 1;
+    transform: translateY(-100%);
+}
+#ntalk-app.on-move #app-background {
+    display: block;
+}
+#ntalk-app #ntalk-toolbar > label {
+    cursor: move;
+    font-family: monospace;
+    padding: 0 5px;
+    flex: 1;
+    font-size: 20px;
+    -webkit-touch-callout: none; /* iOS Safari */
+    -webkit-user-select: none; /* Safari */
+    -khtml-user-select: none; /* Konqueror HTML */
+    -moz-user-select: none; /* Old versions of Firefox */
+    -ms-user-select: none; /* Internet Explorer/Edge */
+    user-select: none; /* Non-prefixed version, currently
+                                    supported by Chrome, Opera and Firefox */
+}
+#ntalk-app #ntalk-toolbar > span {
+    margin: 0 5px;
+    display: inline-block;
+    cursor: pointer;
+    font-size: 20px;
+    border-radius: 50%;
+    width: 25px;
+    height: 25px;
+    text-align: center;
+}
+#ntalk-app #ntalk-toolbar > span:hover {
+    background: #555;
+}
+
+#ntalk-app #ntalk-toolbar > span.icon-maximum {
+    display: none;
+}
+#ntalk-app.minimum #ntalk-toolbar > span.icon-minimum,
+#ntalk-app.minimum #ntalk-toolbar > span.icon-open {
+    display: none;
+}
+
+#ntalk-app.minimum #ntalk-toolbar > span.icon-maximum {
+    display: inline;
+}
+
+#ntalk-iframe {
+    position: relative;
+    z-index: 10;
+    outline: none;
+    border: 0px;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+}

@@ -65,6 +65,11 @@ export default Vue.extend({
             if (this.accessing) {
                 return;
             }
+            if (store.user.sessid) {
+                store.connect();
+                return;
+            }
+
             this.errorMessage = '';
             this.accessing = true;
             store

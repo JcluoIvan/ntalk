@@ -3,7 +3,7 @@ export const env = {
     /**
      * dev = 開發, prod = 正式
      */
-    DEBUG: process.env.DEBUG,
+    DEBUG: process.env.DEBUG === 'true',
 
     ACCESS_CHECK_URL: process.env.ACCESS_CHECK_URL,
 

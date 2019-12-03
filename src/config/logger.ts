@@ -1,6 +1,8 @@
 import * as log4js from 'log4js';
 import * as path from 'path';
+import { env } from './env';
 const logPath = path.resolve(__dirname, '../../logs');
+
 
 log4js.configure({
     appenders: {

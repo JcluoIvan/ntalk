@@ -25,10 +25,12 @@ handlerIOServer(io);
 
 app.use(express.json({ limit: '20mb' }));
 app.use('/assets', express.static('public/assets'));
+app.use('/mosaic', express.static('public/mosaic'));
 
 app.get('/', (request, response) => {
     const data = {
         mainjs: env.DEBUG ? 'http://127.0.0.1:8080/assets/main.js' : '/assets/main.js',
+        maincss: env.DEBUG ? 'http://127.0.0.1:8080/assets/main.css' : '/assets/main.css',
     };
     render('index.html', data)
         .then((html) => response.send(html))

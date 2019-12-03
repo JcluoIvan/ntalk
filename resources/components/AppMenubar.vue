@@ -31,6 +31,15 @@
                             <v-list-item-title>建立群組</v-list-item-title>
                         </v-list-item-content>
                     </v-list-item>
+                    <v-divider></v-divider>
+                    <v-list-item link class="py-2" @click="refreshApp">
+                        <v-list-item-icon>
+                            <v-icon>refresh</v-icon>
+                        </v-list-item-icon>
+                        <v-list-item-content>
+                            <v-list-item-title>重新載入</v-list-item-title>
+                        </v-list-item-content>
+                    </v-list-item>
                 </v-list>
             </v-card>
             <v-divider></v-divider>
@@ -123,6 +132,9 @@ export default Vue.extend({
         createGroupTalk() {
             const dialog: any = this.$refs.talkDialog;
             dialog.newTalk();
+        },
+        refreshApp() {
+            store.refreshApp();
         },
     },
 });

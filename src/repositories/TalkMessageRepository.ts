@@ -4,6 +4,7 @@ import { Op, QueryTypes } from 'sequelize';
 import { TalkMessage } from '../models/TalkMessage';
 import { sequelize } from '../config/database';
 import { log } from '../config/logger';
+import moment from 'moment';
 
 export const TalkMessageRepository = {
     async firstMessages(tids?: number[]) {
@@ -34,7 +35,7 @@ export const TalkMessageRepository = {
             ${whereTalks}
             GROUP BY talk_id
         `;
-        
+
         if (tids.length === 0) {
             return [];
         }
@@ -107,6 +108,15 @@ export const TalkMessageRepository = {
                     [Op.lte]: mid,
                 },
                 talk_id: tid,
+            },
+        });
+    },
+    async deleteMessageLessAt(tid: number, time: string) {
+        return await TalkMessage.destroy({
+            where: {
+                created_at: {
+                    [Op.lte]: time,
+                },
             },
         });
     },

@@ -1,5 +1,6 @@
 import Vue from 'vue';
 import App from './App.vue';
+import '@/scss/main.scss';
 // import 'bootstrap/dist/css/bootstrap.min.css';
 import '@/assets/material-icons/icon.scss';
 // import Notification from './components/Notification.vue';

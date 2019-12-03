@@ -16,7 +16,6 @@ let client: SocketIOClient.Socket = io('/', {
 let autoincrementTalkKey = 0;
 
 const clientEmit = async <T = any>(event: string, data?: any): Promise<T> => {
-    console.info('emit > ', event, data);
     return new Promise<T>((resolve, reject) => {
         client.emit(event, data, (res: NTalk.Socket.EmitResponse<T>) => {
             if (!res) {
@@ -137,9 +136,26 @@ const store = new Vue({
                 };
             });
         },
+        numUnreads(): number {
+            return this.sourceTalks.reduce((nums, talk) => nums + talk.unread, 0);
+        },
+    },
+    watch: {
+        activeTKey(tkey: number, old: number): void {
+            const talk = this.sourceTalks.find((t) => t.key === old);
+
+            // 切換群組後，只保留最後 30筆資料
+            if (talk) {
+                talk.messages = talk.messages.slice(-30);
+            }
+        },
+        numUnreads(nums: number) {
+            const popup = window.parent || window;
+            popup.postMessage(JSON.stringify({ numUnreads: nums }), '*');
+        },
     },
     methods: {
-        async access() {
+        async access(): Promise<any> {
             const data = {
                 access_token: this.query.access_token,
             };
@@ -158,7 +174,13 @@ const store = new Vue({
                     this.connect();
                 });
         },
-
+        refreshApp() {
+            // window.sessionStorage.setItem('sessid', this.user.sessid);
+            // window.location.reload();
+            this.sourceTalks = [];
+            this.users = [];
+            this.init();
+        },
         connect() {
             client = io('/', {
                 query: {
@@ -183,6 +205,14 @@ const store = new Vue({
             client.on('disconnect', () => {
                 this.socket.status = SocketStatus.Disconnected;
                 console.error('disconnect');
+            });
+            client.on('logout', () => {
+                store.user.id = 0;
+                store.user.name = '';
+                store.user.sessid = '';
+                store.user.avatar = '';
+                this.users = [];
+                this.sourceTalks = [];
             });
 
             client.on('error.message', (message: string) => {
@@ -348,7 +378,6 @@ const store = new Vue({
                 });
                 return t;
             });
-            console.info(...talks);
             this.generateSingleTalk();
         },
         async reloadUsers() {
@@ -434,9 +463,6 @@ const store = new Vue({
             talk.messages = [...talk.messages, ...messages];
             talk.messages = talk.messages.sort((a, b) => a.id - b.id);
 
-            // 只保留 30筆
-            talk.messages = talk.messages.slice(-30);
-
             return { nums, messages };
         },
         async saveUserName(name: string) {
@@ -448,5 +474,4 @@ const store = new Vue({
         },
     },
 });
-(window as any).store = store;
 export default store;

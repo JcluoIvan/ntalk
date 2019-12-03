@@ -14,8 +14,8 @@
         <v-card class="d-flex flex-column content-panel" tile dark height="100%" v-else>
             <div>
                 <v-app-bar color="blue-grey darken-4" dense dark>
-                    <v-btn icon @click="backToSidebar">
-                        <v-badge class="hidden-sm-and-up">
+                    <v-btn icon @click="backToSidebar" class="hidden-sm-and-up">
+                        <v-badge>
                             <template v-slot:badge v-if="numUnreads > 0">{{ numUnreads }}</template>
                             <v-icon>chevron_left</v-icon>
                         </v-badge>
@@ -106,6 +106,7 @@
                 </div>
                 <div class="flex-grow-1">
                     <v-textarea
+                        ref="inputMessage"
                         class="pa-1"
                         hide-details
                         :rows="lineRows"
@@ -114,6 +115,7 @@
                         background-color="blue-grey darken-4"
                         v-model="input.message"
                         @keydown.enter.exact.prevent="sendMessage()"
+                        autofocus
                     ></v-textarea>
                 </div>
                 <div class="px-2">
@@ -186,6 +188,7 @@ export default Vue.extend({
                 lifetime: number;
             };
         };
+        isBottom: boolean;
     } => ({
         input: {
             message: '',
@@ -208,6 +211,7 @@ export default Vue.extend({
                 lifetime: 0,
             },
         },
+        isBottom: true,
     }),
     computed: {
         talk(): NTalk.Talk | null {
@@ -242,51 +246,66 @@ export default Vue.extend({
             return names;
         },
         numUnreads() {
-            return store.sourceTalks.reduce((nums, t) => nums + t.unread, 0);
+            return store.numUnreads;
         },
     },
     watch: {
         talk: {
             immediate: true,
-            handler(talk: NTalk.Talk) {
-                if (!talk) {
+            handler(talk: NTalk.Talk, old: NTalk.Talk) {
+                this.$nextTick(() => {
+                    const inputMessage = (this.$refs as any).inputMessage;
+                    if (inputMessage && inputMessage.$refs.input) {
+                        inputMessage.$refs.input.select();
+                    }
+                });
+
+                if (!talk || talk === old) {
                     return;
                 }
+
                 const lastMessage = talk.lastMessage;
                 this.loadMessage.numBefores = 1;
                 this.loadMessage.numAfters = 1;
 
-                if (talk.id > 0) {
-                    talk.unread = 0;
-                    this.lastReadId = !lastMessage || lastMessage.id !== talk.lastReadId ? talk.lastReadId : 0;
-                    talk.lastReadId = lastMessage ? lastMessage.id : talk.lastReadId;
-                    if (talk.messages.length < 30) {
-                        this.loadAfterMessages();
-                    } else {
-                        // 避免自動載入
-                        this.loadMessage.beforeLoading = true;
-                        this.loadMessage.afterLoading = true;
-
-                        this.$nextTick(() => {
-                            const messageDiv: HTMLDivElement = (this.$refs.messages as any).$el;
-                            const lastDiv: HTMLDivElement = document.querySelector(
-                                `#message-${this.lastReadId}`,
-                            ) as any;
-                            console.info(lastDiv);
-                            if (lastDiv) {
-                                messageDiv.scrollTop = lastDiv.getBoundingClientRect().top;
-                            } else {
-                                messageDiv.scrollTop = messageDiv.scrollHeight;
-                            }
-                            // 避免自動載入
-                            this.loadMessage.beforeLoading = false;
-                            this.loadMessage.afterLoading = false;
-                            this.onMessageScroll();
-                        });
-                    }
-                } else {
+                if (talk.id === 0) {
                     this.createSingleTalk('single', talk);
+                    return;
                 }
+
+                talk.unread = 0;
+
+                // 將上次已讀的最後一筆記錄下來
+                this.lastReadId = !lastMessage || lastMessage.id !== talk.lastReadId ? talk.lastReadId : 0;
+
+                // 更新已讀的最後一筆的資料
+                talk.lastReadId = lastMessage ? lastMessage.id : talk.lastReadId;
+
+                // 資料不滿 30筆時拉資料
+                if (talk.messages.length < 30) {
+                    this.loadAfterMessages();
+                    return;
+                }
+
+                // 避免自動載入
+                this.loadMessage.beforeLoading = true;
+                this.loadMessage.afterLoading = true;
+
+                // 跳至未讀的訊息位置
+                this.$nextTick(() => {
+                    const messageDiv: HTMLDivElement = (this.$refs.messages as any).$el;
+                    const lastDiv: HTMLDivElement = document.querySelector(`#message-${this.lastReadId}`) as any;
+
+                    if (lastDiv) {
+                        messageDiv.scrollTop = lastDiv.getBoundingClientRect().top;
+                    } else {
+                        messageDiv.scrollTop = messageDiv.scrollHeight;
+                    }
+                    // 避免自動載入
+                    this.loadMessage.beforeLoading = false;
+                    this.loadMessage.afterLoading = false;
+                    this.onMessageScroll();
+                });
             },
         },
         'talk.lifetime': {
@@ -295,9 +314,20 @@ export default Vue.extend({
                 this.editLifetimeDialog.input.lifetime = Number(value);
             },
         },
+        'talk.lastMessage'(message: NTalk.TalkMessage | null, old: NTalk.TalkMessage | null) {
+            console.info(this.isBottom, message, old);
+            // 僅處理同群組有新訊息的變化，其他都不處理
+            if (!message || !old || message.talkId !== old.talkId) {
+                return;
+            }
+            const divMessages: HTMLDivElement = (this.$refs.messages as any).$el;
+
+            if (this.isBottom) {
+                this.messageScrollTo(divMessages.scrollHeight);
+            }
+        },
     },
     mounted() {
-        (window as any).content = this;
         const onKeydownEsc = this.onKeydownEsc.bind(this);
         this.onMessageResize();
         this.loadAfterMessages();
@@ -335,12 +365,23 @@ export default Vue.extend({
             const divMessages: HTMLDivElement = (this.$refs.messages as any).$el;
 
             const bottomDistance = divMessages.scrollHeight - (divMessages.scrollTop + this.messageHeight);
-
-            if (bottomDistance < 10 && this.loadMessage.numAfters > 0) {
+            this.isBottom = bottomDistance < 10;
+            if (this.isBottom && this.loadMessage.numAfters > 0) {
+                this.isBottom = true;
                 this.loadAfterMessages();
             } else if (this.loadMessage.numBefores > 0 && divMessages.scrollTop < 10) {
                 this.loadBeforeMessages();
             }
+        },
+        messageScrollTo(top: number, nextTick = true) {
+            const divMessages: HTMLDivElement = (this.$refs.messages as any).$el;
+            if (nextTick) {
+                this.$nextTick(() => {
+                    divMessages.scrollTop = top;
+                });
+                return;
+            }
+            divMessages.scrollTop = top;
         },
         onMessageResize() {
             const $messages: any = this.$refs.messages;
@@ -473,11 +514,12 @@ export default Vue.extend({
             this.loadMessage.beforeLoading = false;
 
             this.$nextTick(() => {
-                divMessages.scrollTop = divMessages.scrollHeight - scrollHeight;
+                this.messageScrollTo(divMessages.scrollHeight - scrollHeight);
             });
         },
         async loadAfterMessages() {
             const talk = this.talk;
+            console.warn('after');
             if (!talk || talk.id === 0) {
                 return;
             }
@@ -493,7 +535,7 @@ export default Vue.extend({
             const divMessages: HTMLDivElement = ($messages && $messages.$el) || null;
             this.loadMessage.afterLoading = false;
             this.$nextTick(() => {
-                divMessages.scrollTop = divMessages.scrollHeight;
+                this.messageScrollTo(divMessages.scrollHeight);
             });
         },
     },

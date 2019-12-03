@@ -7,7 +7,8 @@ import { TalkService } from './TalkService';
 import { TalkMessage } from '../models/TalkMessage';
 import { TalkMessageRepository } from '../repositories/TalkMessageRepository';
 import { CronJob } from 'cron';
-import moment = require('moment');
+import moment from 'moment';
+import _ from 'lodash';
 import { env } from '../config/env';
 import Talk from '../models/Talk';
 type ClientOnResponse = (data: any) => void;
@@ -22,11 +23,9 @@ let ioServer!: SocketIO.Server;
 
 const clientOn = (socket: SocketIO.Socket, event: string, callback: ClientOnCallback) => {
     socket.on(event, async (data, response) => {
-        log.info('handle event = ', event, data);
         try {
             await callback(data, (data) => response({ error: null, data }));
         } catch (err) {
-            log.warn(err);
             response({
                 error: err.message,
                 code: err.code || '',
@@ -94,6 +93,7 @@ const clientEventHandler = {
         const id: number = Number(data.id) || 0;
         const name: string = data.name;
         const users: number[] = data.users;
+
         const tid = await TalkService.saveGroupTalk(uid, {
             id,
             name,
@@ -208,7 +208,6 @@ const clientService = {
     },
 
     clientDisconnect(socket: SocketIO.Socket, message?: string) {
-        log.error(message);
         if (message) {
             socket.emit('error.message', message);
         }
@@ -338,22 +337,23 @@ export const handlerIOServer = async (io: SocketIO.Server) => {
         }
 
         if (user.sessid !== sessid) {
+            /* 登出使用者 */
+            socket.emit('logout');
             clientService.clientDisconnect(socket, `sessid 已失效`);
             return;
         }
 
-        log.info(`on connected > ${socket.id}`);
-
         const old = mapClients.get(user.id);
         if (old) {
             if (old.socket) {
+                /* 登出使用者 */
+                old.socket.emit('logout');
                 clientService.clientDisconnect(old.socket, `重複登入`);
             }
             mapClients.delete(user.id);
         }
 
         socket.on('disconnect', () => {
-            log.warn(`on disconnected > ${socket.id}`);
             const client = mapClients.get(user.id);
             mapClients.delete(user.id);
             if (client && client.socket.connected) {
@@ -379,7 +379,6 @@ export const handlerIOServer = async (io: SocketIO.Server) => {
         });
 
         clientOn(socket, 'talk.all', async (data, response) => {
-            log.warn('talk.all');
             await clientEventHandler.onTalks(user.id, response);
         });
 
@@ -427,22 +426,23 @@ export const handlerIOServer = async (io: SocketIO.Server) => {
      * Months: 0-11 (Jan-Dec)
      * Day of Week: 0-6 (Sun-Sat)
      */
-
-    /**
-     * 每分鐘執行一次
-     */
-    const clearExpireTalkMessageJob = new CronJob('0 * * * * *', () => {
+    const checkExpireMessage = () => {
         const now = moment().valueOf();
 
         TalkService.all().filter(async ({ talk, firstMessage }) => {
             const lifetime = talk.lifetime;
             const firstMessageAt = firstMessage ? moment(firstMessage.createdAt).add(lifetime, 'minute') : null;
-            console.warn('Frist > ', firstMessageAt);
             if (firstMessageAt && now > firstMessageAt.valueOf()) {
                 await TalkService.clearExpireMessages(talk.id);
                 clientService.broadcastMessageDeleted(talk.id);
             }
         });
-    });
+    };
+
+    /**
+     * 每分鐘執行一次
+     */
+    const clearExpireTalkMessageJob = new CronJob('0 * * * * *', checkExpireMessage);
     clearExpireTalkMessageJob.start();
+    checkExpireMessage();
 };

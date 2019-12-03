@@ -6,6 +6,7 @@ import { TalkMessageRepository } from '../repositories/TalkMessageRepository';
 import { log } from '../config/logger';
 import { UserRepository } from '../repositories/UserRepository';
 import _ from 'lodash';
+import moment from 'moment';
 
 interface TalkItem {
     talk: Talk;
@@ -188,7 +189,10 @@ export const TalkService = {
             return;
         }
         const { talk, firstMessage } = item;
-        await TalkMessageRepository.deleteMessageIdLessThan(talk.id, firstMessage.id);
+        const expireLessAt = moment()
+            .add(env.MAX_MESSAGE_LIFETIME, 'minutes')
+            .format('YYYY-MM-DD HH:mm:ss');
+        await TalkMessageRepository.deleteMessageLessAt(talk.id, expireLessAt);
         await TalkService.reloadFirstMessage([talk.id]);
     },
 

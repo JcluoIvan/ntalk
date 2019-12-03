@@ -14,6 +14,7 @@ async function render(fpath: string, data?: { [key: string]: string }) {
                 return;
             }
             let str = buffer.toString();
+            log.warn(data);
             if (data) {
                 str = Object.keys(data || {}).reduce((s, key) => s.replace(`{{${key}}}`, data[key]), str);
             }

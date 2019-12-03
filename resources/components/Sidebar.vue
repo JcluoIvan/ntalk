@@ -4,7 +4,13 @@
             <div>
                 <v-app-bar dark>
                     <v-app-bar-nav-icon @click="showAppMenubar"></v-app-bar-nav-icon>
-                    <v-text-field hide-details append-icon="search" single-line placeholder="搜尋"></v-text-field>
+                    <v-text-field
+                        v-model="input.search"
+                        hide-details
+                        append-icon="search"
+                        single-line
+                        placeholder="搜尋"
+                    ></v-text-field>
                 </v-app-bar>
             </div>
             <v-card class="group-panel overflow-y-auto overflow-x-hidden flex-grow-1">
@@ -58,10 +64,10 @@ const effects = {
 };
 namespace P {}
 export default Vue.extend({
-    data: (): {} => ({
-        visibleSystemMenu: false,
+    data: () => ({
         input: {
             userName: '',
+            search: '',
         },
         confirm: {
             userName: false,
@@ -72,8 +78,8 @@ export default Vue.extend({
             return effects;
         },
         talks(): NTalk.Talk[] {
-            const tkey = store.activeTKey;
-            return store.talks;
+            const search = this.input.search;
+            return store.talks.filter((t) => !search || t.name.indexOf(search) >= 0);
         },
         activeTKey(): number {
             return store.activeTKey;
@@ -101,7 +107,7 @@ export default Vue.extend({
         },
     },
     watch: {
-        ['activeTalk.lastMessage'](message: NTalk.TalkMessage, old: NTalk.TalkMessage | null) {
+        'activeTalk.lastMessage'(message: NTalk.TalkMessage, old: NTalk.TalkMessage | null) {
             const effectMessage: any = this.$refs.effectMessage;
 
             /**

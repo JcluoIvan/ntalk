@@ -20,8 +20,8 @@ mix.alias({ '@': '/resources' }).webpackConfig({
             // your rules may go here
             // next rules are just example, you can modify them according to your needs
             {
-                test: /\.(woff|woff2|eot|ttf|svg|wav)(\?.*$|$)/,
-                loader: 'file-loader?name=[name].[ext]?[hash]',
+                test: /\.(wav)(\?.*$|$)/,
+                loader: 'file-loader?name=assets/[name].[ext]?[hash]',
             },
         ],
     },
